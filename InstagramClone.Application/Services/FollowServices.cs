@@ -1,19 +1,21 @@
-﻿using InstagramClone.Application.DTOs.InfoUser;
+using InstagramClone.Application.DTOs.InfoUser;
 using InstagramClone.Application.Interfaces.Services;
 using InstagramClone.Common.Constants;
 using InstagramClone.Common.Results;
 using InstagramClone.Domain.Entities;
 using InstagramClone.Domain.Enums;
-using InstagramClone.Infrastructure.Data;
+using InstagramClone.Application.Interfaces.Data;
 using Microsoft.EntityFrameworkCore;
+using InstagramClone.Application.Interfaces.Caching;
 
-namespace InstagramClone.Infrastructure.Services
+namespace InstagramClone.Application.Services
 {
-    public class FollowServices(AppDbContext context, ICurrentUserService currentUser) : IFollowService
+    public class FollowServices(IApplicationDbContext context, ICurrentUserService currentUser, ICacheService cache) : IFollowService
     {
         public async Task<Result<string>> SendFollowRequestAsync(string targetId)
         {
             var observerId = currentUser.UserId;
+            await cache.RemoveAsync($"followers:{targetId}:{observerId}");
 
             if (observerId == targetId)
                 return Result<string>.BadRequest(new Error(ErrorCodes.Conflict, "You cannot follow yourself."));
@@ -64,6 +66,8 @@ namespace InstagramClone.Infrastructure.Services
         public async Task<Result<bool>> AcceptFollowRequestAsync(string observerId)
         {
             var userId = currentUser.UserId;
+            await cache.RemoveAsync($"followers:{userId}:{observerId}");
+
             if (string.IsNullOrEmpty(userId))
                 return Result<bool>.BadRequest(new Error(ErrorCodes.Failure, "User must be authenticated to accept follow requests."));
 
@@ -81,6 +85,8 @@ namespace InstagramClone.Infrastructure.Services
         public async Task<Result<bool>> DeclineFollowRequestAsync(string observerId)
         {
             var userId = currentUser.UserId;
+            await cache.RemoveAsync($"followers:{userId}:{observerId}");
+
             if (string.IsNullOrEmpty(userId))
                 return Result<bool>.BadRequest(new Error(ErrorCodes.Failure, "User must be authenticated to decline follow requests."));
 
@@ -98,8 +104,10 @@ namespace InstagramClone.Infrastructure.Services
         public async Task<Result<List<UserSummaryDto>>> GetFollowerAsync(string targetUserId)
         {
             var currentUserId = currentUser.UserId;
-
-            var follower = await context.Follows
+            var cacheKey = $"followers:{targetUserId}:{currentUserId}";
+            var cachedFollowers = await cache.GetOrCreateAsync<List<UserSummaryDto>>(cacheKey, factory: async () =>
+            {
+                var follower = await context.Follows
                 .AsNoTracking()
                 .Where(f => f.TargetId == targetUserId && f.Status == FollowStatus.Accepted)
                 .Select(f => new UserSummaryDto
@@ -109,33 +117,41 @@ namespace InstagramClone.Infrastructure.Services
                     FullName = f.Observer.FullName,
                     AvatarUrl = f.Observer.AvatarUrl!,
                     IsFollowing = !string.IsNullOrEmpty(currentUserId)
-                        && context.Follows.Any( myFollow => myFollow.ObserverId == currentUserId && 
-                                                myFollow.TargetId == f.ObserverId && 
+                        && context.Follows.Any(myFollow => myFollow.ObserverId == currentUserId &&
+                                                myFollow.TargetId == f.ObserverId &&
                                                 myFollow.Status == FollowStatus.Accepted)
                 })
                 .ToListAsync();
-            return Result<List<UserSummaryDto>>.Success(follower);
+                return follower;
+            });
+           
+            return Result<List<UserSummaryDto>>.Success(cachedFollowers);
         }
 
         public async Task<Result<List<UserSummaryDto>>> GetFollowingAsync(string targetUserId)
         {
             var currentUserId = currentUser.UserId;
-            var following = await context.Follows
+            var cacheKey = $"following:{targetUserId}:{currentUserId}";
+            var cachedFollowing = await cache.GetOrCreateAsync<List<UserSummaryDto>>(cacheKey, factory: async () =>
+            {
+                var following = await context.Follows
                 .AsNoTracking()
                 .Where(f => f.ObserverId == targetUserId && f.Status == FollowStatus.Accepted)
                 .Select(f => new UserSummaryDto
                 {
                     UserId = f.Target.Id,
-                    UserName = f.Observer.UserName!,
+                    UserName = f.Target.UserName!,
                     FullName = f.Target.FullName,
                     AvatarUrl = f.Target.AvatarUrl!,
                     IsFollowing = !string.IsNullOrEmpty(currentUserId)
-                        && context.Follows.Any( myFollow => myFollow.ObserverId == currentUserId && 
-                                                myFollow.TargetId == f.TargetId && 
+                        && context.Follows.Any(myFollow => myFollow.ObserverId == currentUserId &&
+                                                myFollow.TargetId == f.Target.Id &&
                                                 myFollow.Status == FollowStatus.Accepted)
                 })
                 .ToListAsync();
-            return Result<List<UserSummaryDto>>.Success(following);
+                return following;
+            });
+            return Result<List<UserSummaryDto>>.Success(cachedFollowing);
         }
     }
 }

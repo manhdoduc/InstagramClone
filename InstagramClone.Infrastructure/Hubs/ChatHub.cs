@@ -7,10 +7,10 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using System.Collections.Concurrent;
 
-namespace InstagramClone.API.Hubs
+namespace InstagramClone.Infrastructure.Hubs
 {
     [Authorize]
-    public class ChatHub(AppDbContext context, ICurrentUserService currentUser) : Hub<IChatHub>
+    public class ChatHub(ICurrentUserService currentUser, IChatService chatService) : Hub<IChatHub>
     {
         private static readonly ConcurrentDictionary<string, HashSet<string>> _onlineUsers = new();
         // sau dùng redis pub/sub để quản lý online/offline thay vì dùng static dictionary này, vì static dictionary này sẽ bị reset khi app restart, và không thể scale ra nhiều instance được
@@ -64,30 +64,9 @@ namespace InstagramClone.API.Hubs
 
         public async Task SendMessage(Guid chatRoomId, string content)
         {
-            var senderUserId = currentUser.UserId;
-
-            var isMember = await context.ChatParticipants.AnyAsync(cp => cp.ChatRoomId == chatRoomId && cp.UserId == senderUserId);
-
-            if(!isMember)
-                throw new HubException("Bạn không phải là thành viên của phòng chat này.");
-
-            var message = new Message
-            {
-                ChatRoomId = chatRoomId,
-                SenderId = senderUserId,
-                Content = content
-            };
-
-            context.Messages.Add(message);
-            await context.SaveChangesAsync();
-
-            await Clients.Group(chatRoomId.ToString()).ReceiveMessage(new Message
-            {
-                Id = message.Id,
-                SenderId = message.SenderId,
-                Content = message.Content,
-                CreatedAt = message.CreatedAt
-            });
+            var result = await chatService.SaveMessageAsync(chatRoomId, content); // lưu message vào database, không cần await vì chúng ta sẽ gửi message đi trước, nếu có lỗi khi lưu thì có thể xử lý sau
+            if (result.IsSuccess)
+                await Clients.Group(chatRoomId.ToString()).ReceiveMessage(result.Value);
         }
 
         public async Task JoinChatRoom(Guid chatRoomId)
@@ -99,5 +78,34 @@ namespace InstagramClone.API.Hubs
         {
             await Groups.RemoveFromGroupAsync(Context.ConnectionId, chatRoomId.ToString());
         }
+
+        // đánh dấu tất cả tin nhắn trong phòng chat là đã đọc
+        public async Task MarkMessagesAsRead(Guid chatRoomId)
+        {
+            var userId = currentUser.UserId;
+            var result = await chatService.MarkRoomAsReadAsync(chatRoomId);
+            if (result.IsSuccess && result.Value)
+            {
+                await Clients.Group(chatRoomId.ToString()).MessagesRead(userId, chatRoomId);
+            }
+        }
+
+        //public async Task StartTyping(Guid chatRoomId)
+        //{
+        //    var userId = currentUser.UserId;
+        //    // Bắn tin cho những người KHÁC trong phòng
+        //    await Clients.OthersInGroup(chatRoomId.ToString().ToLower())
+        //                 .SendAsync("UserTyping", userId, chatRoomId);
+        //}
+
+        //public async Task StopTyping(Guid chatRoomId)
+        //{
+        //    var userId = currentUser.UserId;
+        //    await Clients.OthersInGroup(chatRoomId.ToString().ToLower())
+        //                 .SendAsync("UserStoppedTyping", userId, chatRoomId);
+        //}
+        // Chúng ta có thể thêm các phương thức khác như StartTyping, StopTyping để thông báo cho người dùng khác biết khi nào một người đang gõ tin nhắn, nhưng trong bản demo này chúng ta sẽ không triển khai tính năng đó để giữ cho code đơn giản hơn
+        // Làm khi có giao diện
+
     }
 }

@@ -5,7 +5,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace InstagramClone.API.Controllers
 {
-    [Route("api/[controller]")]
+    [Route("api/follows")]
     [ApiController]
     [Authorize]
     public class FollowsController(IFollowService followService) : BaseApiController

@@ -56,7 +56,7 @@ namespace InstagramClone.Infrastructure.Services
                        Mode = ResizeMode.Max,
                        Size = new Size(maxWidth , maxHeight)
                     }));
-
+                     
                     // Lưu ảnh dưới định dạng JPEG với chất lượng 80
                     var encoder = new JpegEncoder { Quality = 80 };
                     await image.SaveAsJpegAsync(filePath, encoder);

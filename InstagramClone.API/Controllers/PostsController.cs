@@ -1,18 +1,20 @@
-﻿using InstagramClone.Application.DTOs.Common;
+using InstagramClone.Application.DTOs.Common;
 using InstagramClone.Application.DTOs.post;
 using InstagramClone.Application.Interfaces.Services;
 using InstagramClone.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace InstagramClone.API.Controllers
 {
-    [Route("api/[controller]")]
+    [Route("api/posts")]
     [ApiController]
     [Authorize]
     public class PostsController(IPostServices postServices) : BaseApiController
     {
         [HttpPost]
+        [EnableRateLimiting("UploadLimit")]
         public async Task<ActionResult<string>> CreatePost([FromForm] CreatePostDto createPostDto)
         {
             var result = await postServices.CreatePostAsync(createPostDto);
@@ -35,20 +37,15 @@ namespace InstagramClone.API.Controllers
             return ToActionResult(result);
         }
 
-        [HttpGet]
-        public async Task<ActionResult<List<ResponsePostDto>>> GetFeed([FromQuery] CursorPaginationRequest cursorPagination)
+
+
+        [HttpGet("feed")]
+        public async Task<ActionResult<CursorPagedResponse<ResponsePostDto>>> GetPosts([FromQuery] CursorPaginationRequest cursorPagination)
         {
-            var result = await postServices.GetFeedAsync(cursorPagination);
+            var result = await postServices.GetFeedsAsync(cursorPagination);
             return ToActionResult(result);
         }
 
-        //[HttpGet("list-post")]
-        //public async Task<ActionResult<CursorPagedResponse<ResponsePostDto>>> GetPosts([FromQuery] CursorPaginationRequest cursorPagination)
-        //{
-        //    var result = await postServices.GetPostsAsync(cursorPagination);
-        //    return ToActionResult(result);
-        //}
-        
         [HttpPost("{id}/like")] // URL sẽ là: api/posts/{id}/like
         public async Task<ActionResult<string>> ToggleLike(Guid id)
         {
@@ -60,9 +57,9 @@ namespace InstagramClone.API.Controllers
         
 
         [HttpPut("{id}")] // api/posts/{id}
-        public async Task<ActionResult<bool>> UpdatePost(Guid id, [FromBody] string content)
+        public async Task<ActionResult<bool>> UpdatePost(Guid id, [FromBody] UpdatePostDto dto)
         {
-            var result = await postServices.UpdatePostAsync(content, id);
+            var result = await postServices.UpdatePostAsync(dto.Content, id);
             return ToActionResult(result);
         }
 
@@ -74,18 +71,18 @@ namespace InstagramClone.API.Controllers
         }
 
         [HttpGet("saved-posts")]
-        public async Task<ActionResult<List<ResponsePostDto>>> GetSavedPosts([FromQuery] CursorPaginationRequest cursorPagination)
+        public async Task<ActionResult<CursorPagedResponse<ResponsePostDto>>> GetSavedPosts([FromQuery] CursorPaginationRequest cursorPagination)
         {
             var result = await postServices.GetSavedPostsAsync(cursorPagination);
             return ToActionResult(result);
         }
 
-        [HttpGet("hashtag")]
-        public async Task<ActionResult<List<ResponsePostDto>>> GetPostsByHashtag(
-                [FromQuery] string tag,
+        [HttpGet("search")]
+        public async Task<ActionResult<CursorPagedResponse<ResponsePostDto>>> GetPostsByHashtag(
+                [FromQuery] string content,
                 [FromQuery] CursorPaginationRequest request)
         {
-            var result = await postServices.GetPostsByHashtagAsync(tag, request);
+            var result = await postServices.GetSearchPostsAsync(content, request);
             return ToActionResult(result);
         }
     }

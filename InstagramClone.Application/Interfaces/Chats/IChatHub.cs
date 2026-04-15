@@ -14,5 +14,6 @@ namespace InstagramClone.Application.Interfaces.Chats
         Task ReceiveMessage(Message message);
         Task NewChatRoomCreated(Guid roomId, string creatorName);
        
+        Task MessagesRead(string userId, Guid ChatRoomId);
     }
 }

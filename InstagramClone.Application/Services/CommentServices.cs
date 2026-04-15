@@ -1,20 +1,22 @@
-﻿using InstagramClone.Application.DTOs.Common;
+using InstagramClone.Application.DTOs.Common;
 using InstagramClone.Application.DTOs.post;
 using InstagramClone.Application.Interfaces.Services;
 using InstagramClone.Common.Constants;
 using InstagramClone.Common.Results;
 using InstagramClone.Domain.Entities;
-using InstagramClone.Infrastructure.Data;
+using InstagramClone.Application.Interfaces.Data;
 using Microsoft.EntityFrameworkCore;
+using InstagramClone.Application.Interfaces.Caching;
 
-namespace InstagramClone.Infrastructure.Services;
-public class CommentServices(AppDbContext context, ICurrentUserService currentUser) : ICommentServices
+namespace InstagramClone.Application.Services;
+public class CommentServices(IApplicationDbContext context, ICurrentUserService currentUser, ICacheService cache) : ICommentServices
 {
     public async Task<Result<ResponseCommentDto>> AddCommentAsync(Guid postId, CreateCommentDto commentDto)
     {
         var userId = currentUser.UserId;
+        await cache.RemoveAsync($"comments:{postId}:version"); // Invalidate cache for comments of this post
 
-        var postExits = await context.Posts.AnyAsync(p => p.UserId == userId);
+        var postExits = await context.Posts.AnyAsync(p => p.Id == postId);
         if (!postExits)
             return Result<ResponseCommentDto>.Failure(new Error(ErrorCodes.NotFound, "Post not found"));
 
@@ -43,45 +45,57 @@ public class CommentServices(AppDbContext context, ICurrentUserService currentUs
     public async Task<Result<CursorPagedResponse<ResponseCommentDto>>> GetCommentsByPostIdAsync(Guid postId, CursorPaginationRequest pagination)
     {
         var userId = currentUser.UserId;
+        var versionKey = $"comments:{postId}:version";
+        var version = await cache.GetOrCreateAsync(versionKey, () => Task.FromResult(1));
 
-        var query = context.Comments
+        var cacheKey = $"comments:{postId}:{version}:{userId}:{pagination.Cursor}:{pagination.PageSize}";
+
+
+        var cachedPost = await cache.GetOrCreateAsync<CursorPagedResponse<ResponseCommentDto>>(cacheKey, factory: async () =>
+        {
+            var query = context.Comments
             .AsNoTracking()
             .Where(c => c.PostId == postId);
 
-        if(pagination.Cursor.HasValue)
-            query = query.Where(c => c.CreatedAt < pagination.Cursor.Value);
+            if (pagination.Cursor.HasValue)
+                query = query.Where(c => c.CreatedAt < pagination.Cursor.Value);
 
-        var comments = await query
-            .OrderByDescending(c => c.CreatedAt)
-            .Take(pagination.PageSize + 1)
-            .Select(c => new ResponseCommentDto
+            var comments = await query
+                .OrderByDescending(c => c.CreatedAt)
+                .Take(pagination.PageSize + 1)
+                .Select(c => new ResponseCommentDto
+                {
+                    Id = c.Id,
+                    Content = c.Content,
+                    CreatedAt = c.CreatedAt,
+                    AuthorId = c.UserId,
+                    AuthorName = c.AppUser.UserName!,
+                    AuthorAvatar = c.AppUser.AvatarUrl,
+                    LikeCount = c.Likes.Count(),
+                    IsLiked = context.CommentLikes.Any(cl => cl.CommentId == c.Id && cl.UserId == userId && !cl.IsDeleted)
+                })
+                .ToListAsync();
+
+            var hasNextPage = comments.Count > pagination.PageSize;
+            DateTime? nextCursor = null;
+
+            if (hasNextPage)
             {
-                Id = c.Id,
-                Content = c.Content,
-                CreatedAt = c.CreatedAt,
-                AuthorId = c.UserId,
-                AuthorName = c.AppUser.UserName!,
-                AuthorAvatar = c.AppUser.AvatarUrl,
-                LikeCount = c.Likes.Count(),
-                IsLiked = string.IsNullOrEmpty(userId) && context.CommentLikes.Any(cl => cl.UserId == currentUser.UserId)
-            })
-            .ToListAsync();
+                comments.RemoveAt(pagination.PageSize);
+                nextCursor = comments.Last().CreatedAt;
+            }
 
-        var hasNextPage = comments.Count > pagination.PageSize;
-        DateTime? nextCursor = null;
+            var cacheEntry = new CursorPagedResponse<ResponseCommentDto>
+            {
+                Items = comments,
+                HasNextPage = hasNextPage,
+                NextCursor = nextCursor
+            };
 
-        if (hasNextPage)
-        {
-            comments.RemoveAt(pagination.PageSize);
-            nextCursor = comments.Last().CreatedAt;
-        }
-
-        return Result<CursorPagedResponse<ResponseCommentDto>>.Success(new CursorPagedResponse<ResponseCommentDto>
-        {
-            Items = comments,
-            HasNextPage = hasNextPage,
-            NextCursor = nextCursor
+            return cacheEntry;
         });
+
+        return Result<CursorPagedResponse<ResponseCommentDto>>.Success(cachedPost);
     }
 
     public async Task<Result<string>> DeleteCommentAsync(Guid commentId)
@@ -147,6 +161,7 @@ public class CommentServices(AppDbContext context, ICurrentUserService currentUs
         else
         {
             existingLike.IsDeleted = !existingLike.IsDeleted;
+            context.CommentLikes.Update(existingLike);
             resultMessage = existingLike.IsDeleted ? LikeCodess.Unlike : LikeCodess.Liked;
         }
         await context.SaveChangesAsync();

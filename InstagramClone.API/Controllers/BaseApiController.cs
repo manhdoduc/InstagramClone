@@ -1,12 +1,13 @@
 ﻿using InstagramClone.Common.Constants;
 using InstagramClone.Common.Results;
 using Microsoft.AspNetCore.Mvc;
+using Serilog;
 
 namespace InstagramClone.API.Controllers;
 public abstract class BaseApiController : ControllerBase
 {
     protected ActionResult<T> ToActionResult<T>(Result<T> result, string successMessage = "Success")
-        => result.IsSuccess ? Ok(new { isSuccess = true, data = result.Value, message = successMessage }) : MapErrorsToResponse(result.Errors);
+        => result.IsSuccess ? Ok(result.Value) : MapErrorsToResponse(result.Errors);
 
     protected ActionResult ToActionResult(Result result)
         => result.IsSuccess ? NoContent() : MapErrorsToResponse(result.Errors);
@@ -15,6 +16,7 @@ public abstract class BaseApiController : ControllerBase
     {
         if (errors is null || errors.Length == 0)
         {
+            Log.Warning("An error occurred but no error details were provided.");
             return Problem(
                 statusCode: StatusCodes.Status500InternalServerError,
                 title: "An error occurred",
@@ -31,6 +33,7 @@ public abstract class BaseApiController : ControllerBase
                 statusCode: StatusCodes.Status404NotFound,
                 title: "Resource not found",
                 detail: errorDetails
+               
             ),
             ErrorCodes.Validation => ValidationProblem(
                 title: "Validation failed",

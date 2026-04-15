@@ -1,4 +1,4 @@
-﻿using InstagramClone.Application.DTOs.Auth;
+using InstagramClone.Application.DTOs.Auth;
 using InstagramClone.Application.Interfaces.Services;
 using InstagramClone.Common.Constants;
 using InstagramClone.Common.Models.Config;
@@ -11,9 +11,10 @@ using Microsoft.IdentityModel.Tokens;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
+using System.Security.Cryptography;
 using System.Text;
-
-namespace InstagramClone.Infrastructure.Services
+using Serilog;
+namespace InstagramClone.Application.Services
 {
     public class AuthServices(
         UserManager<AppUser> userManager,
@@ -34,6 +35,7 @@ namespace InstagramClone.Infrastructure.Services
             var result = await userManager.CreateAsync(user, registerUserDto.Password);
             if (!result.Succeeded)
             {
+                Log.Warning("Failed to register user {Email}. Errors: {@Errors}", registerUserDto.Email, result.Errors.Select(e => e.Description));
                 var error = result.Errors.Select(e => new Error(ErrorCodes.BadRequest, e.Description)).ToArray();
                 return Result<RegisteredUserDto>.BadRequest(error);
             }
@@ -49,6 +51,8 @@ namespace InstagramClone.Infrastructure.Services
                 UserName = registerUserDto.NickName,
                 Role = registerUserDto.Role
             };
+
+            Log.Information("User {UserId} registered successfully with email {Email}", user.Id, user.Email);
             return Result<RegisteredUserDto>.Success(registeredUserDto);
         }
 
@@ -65,6 +69,7 @@ namespace InstagramClone.Infrastructure.Services
             var password = await userManager.CheckPasswordAsync(user, loginDto.Password);
             if (!password)
             {
+                Log.Warning("Invalid login attempt for {Email}", loginDto.Identifier);
                 return Result<TokenResponseDto>.Failure(new Error(ErrorCodes.BadRequest, "Invalid login attempt"));
             }
 
@@ -81,6 +86,8 @@ namespace InstagramClone.Infrastructure.Services
                 AccessToken = accessToken,
                 RefreshToken = refreshToken
             };
+
+            Log.Information("User {UserId} logged in successfully", user.Id);
             return Result<TokenResponseDto>.Success(token);
         }
 

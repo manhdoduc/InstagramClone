@@ -1,22 +1,27 @@
-﻿using InstagramClone.Application.DTOs.InfoUser;
+using InstagramClone.Application.DTOs.InfoUser;
 using InstagramClone.Application.Interfaces.Services;
 using InstagramClone.Common.Constants;
 using InstagramClone.Common.Results;
 using InstagramClone.Domain.Constants;
 using InstagramClone.Domain.Entities;
 using InstagramClone.Domain.Enums;
-using InstagramClone.Infrastructure.Data;
+using InstagramClone.Application.Interfaces.Data;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using InstagramClone.Application.Interfaces.Caching;
 
-namespace InstagramClone.Infrastructure.Services;
-public class UserServices(IStorageServices storageServices, UserManager<AppUser> userManager, ICurrentUserService currentUser, AppDbContext context) : IUserServices
+namespace InstagramClone.Application.Services;
+public class UserServices(IStorageServices storageServices, UserManager<AppUser> userManager, 
+                            ICurrentUserService currentUser, IApplicationDbContext context,
+                            ICacheService cache) : IUserServices
 {
     public async Task<Result<string>> UploadAvatarAsync(IFormFile file)
     {
         // 1. Check if the user exists
         string userId = currentUser.UserId; // Override the userId with the current user's ID to ensure users can only upload their own avatars
+
+        await cache.RemoveAsync($"user:profile:{userId}:{userId}"); // Xóa cache profile của chính họ để cập nhật avatar mới nhanh hơn
 
         var user = await userManager.FindByIdAsync(userId);
         if(user is null)
@@ -67,6 +72,9 @@ public class UserServices(IStorageServices storageServices, UserManager<AppUser>
     public async Task<Result<bool>> DeleteAvatarAsync()
     {
         var userId = currentUser.UserId;
+
+        await cache.RemoveAsync($"user:profile:{userId}:{userId}"); // Xóa cache profile của chính họ để cập nhật avatar mới nhanh hơn
+
         if (userId == null)
             return Result<bool>.BadRequest(new Error(ErrorCodes.BadRequest, "User ID is missing from the current user context."));
         var user = await userManager.FindByIdAsync(userId);
@@ -86,6 +94,9 @@ public class UserServices(IStorageServices storageServices, UserManager<AppUser>
     public async Task<Result<string>> ToggleAccountPrivacyAsync()
     {
         var userId = currentUser.UserId;
+
+        await cache.RemoveAsync($"user:profile:{userId}:{userId}"); // Xóa cache profile của chính họ để cập nhật trạng thái bảo mật mới nhanh hơn
+
         if (userId == null)
             return Result<string>.BadRequest(new Error(ErrorCodes.BadRequest, "User ID is missing from the current user context."));
 
@@ -105,6 +116,8 @@ public class UserServices(IStorageServices storageServices, UserManager<AppUser>
     public async Task<Result<string>> UploadBioAsync(string bio)
     {
         var userId = currentUser.UserId;
+        await cache.RemoveAsync($"user:profile:{userId}:{userId}"); // Xóa cache profile của chính họ để cập nhật bio mới nhanh hơn
+
         if (userId == null)
             return Result<string>.BadRequest(new Error(ErrorCodes.BadRequest, "User ID is missing from the current user context."));
         
@@ -140,58 +153,73 @@ public class UserServices(IStorageServices storageServices, UserManager<AppUser>
 
     public async Task<Result<UserProfileResponseDto>> GetUserProfileAsync(string targetUserId)
     {
-        var userId = currentUser.UserId; // Override the targetUserId with the current user's ID to ensure users can only view their own profile
+        var userId = currentUser.UserId;
+        var cacheKey = $"user:profile:{userId}:{targetUserId}";
 
-        var profile = await context.Users
-            .AsNoTracking()
-            .Where(u => u.Id == targetUserId)
-            .Select(u => new UserProfileResponseDto
+        // 1. Gọi Cache (Lưu ý: Factory chỉ trả về DTO hoặc null)
+        var cachedProfile = await cache.GetOrCreateAsync<UserProfileResponseDto?>(
+            cacheKey,
+            factory: async () =>
             {
-                Id = u.Id,
-                FullName = u.FullName,
-                AvatarUrl = u.AvatarUrl! ?? "",
-                Bio = u.Bio,
-                IsPrivateAccount = u.IsPrivateAccount,
+                // TÌM USER TRƯỚC
+                var userExists = await context.Users.AnyAsync(u => u.Id == targetUserId);
+                if (!userExists) return null;
 
-                // Đếm số lượng bài viết, followers, following
-                PostCount = context.Posts.Count(p => p.UserId == targetUserId),
-                FollowerCount = u.Followers.Count(f => f.Status == FollowStatus.Accepted),
-                FollowingCount = u.Followings.Count(f => f.Status == FollowStatus.Accepted),
+                bool myAccount = userId == targetUserId;
 
-                // Kiểm tra trạng thái follow giữa current user và target user
-                IsFollowing = !string.IsNullOrEmpty(userId) && context.Follows.Any( f => f.ObserverId == userId && f.Status == FollowStatus.Accepted),
-                IsRequested = !string.IsNullOrEmpty(userId) && context.Follows.Any( f => f.ObserverId == userId && f.Status == FollowStatus.Pending),
-            })
-            .FirstOrDefaultAsync();
+                var profile = await context.Users
+                    .AsNoTracking()
+                    .Where(u => u.Id == targetUserId)
+                    .Select(u => new UserProfileResponseDto
+                    {
+                        Id = u.Id,
+                        FullName = u.FullName,
+                        AvatarUrl = u.AvatarUrl ?? "",
+                        Bio = u.Bio,
+                        MyAccount = myAccount,
+                        IsPrivateAccount = u.IsPrivateAccount,
+                        PostCount = context.Posts.Count(p => p.UserId == targetUserId),
+                        FollowerCount = u.Followers.Count(f => f.Status == FollowStatus.Accepted),
+                        FollowingCount = u.Followings.Count(f => f.Status == FollowStatus.Accepted),
+                        // Quan trọng: Phải check ObserverId == userId (người đang xem)
+                        IsFollowing = !string.IsNullOrEmpty(userId) && u.Followers.Any(f => f.ObserverId == userId && f.Status == FollowStatus.Accepted),
+                        IsRequested = !string.IsNullOrEmpty(userId) && u.Followers.Any(f => f.ObserverId == userId && f.Status == FollowStatus.Pending),
+                    })
+                    .FirstOrDefaultAsync();
 
-        if (profile == null)
+                if (profile == null) return null;
+
+                // 2. LOGIC BẢO MẬT: Load bài viết nếu có quyền
+                bool canViewPosts = myAccount || !profile.IsPrivateAccount || profile.IsFollowing;
+
+                if (canViewPosts)
+                {
+                    profile.RecentPosts = await context.Posts
+                        .AsNoTracking()
+                        .Where(p => p.UserId == targetUserId)
+                        .OrderByDescending(p => p.CreatedAt)
+                        .Take(12)
+                        .Select(p => new PostGridItemDto
+                        {
+                            Id = p.Id,
+                            ThumbnailUrl = p.MediaPorts.OrderBy(m => m.Id).Select(m => m.MediaUrl).FirstOrDefault() ?? "",
+                            LikeCount = p.Likes.Count(),
+                            CommentCount = p.Comments.Count()
+                        })
+                        .ToListAsync();
+                }
+
+                return profile;
+            },
+            TimeSpan.FromMinutes(2));
+
+        // 2. KIỂM TRA KẾT QUẢ SAU KHI LẤY TỪ CACHE
+        if (cachedProfile == null)
         {
             return Result<UserProfileResponseDto>.Failure(new Error("NotFound", "Người dùng không tồn tại."));
         }
-        // 2. LOGIC BẢO MẬT: Có được xem ảnh bài viết không?
-        // Được xem khi: Tự xem chính mình HOẶC Tài khoản Public HOẶC Đã follow thành công
-        bool canViewPosts = profile.Id == userId || !profile.IsPrivateAccount || profile.IsFollowing;
 
-        if (canViewPosts)
-        {
-            profile.RecentPosts = await context.Posts
-                .AsNoTracking()
-                .Where(p => p.UserId == targetUserId)
-                .OrderByDescending(p => p.CreatedAt)
-                .Take(12)
-                .Select(p => new PostGridItemDto
-                {
-                    Id = p.Id,
-                    // Lấy URL của tấm ảnh đầu tiên trong mảng ảnh của bài viết đó làm Thumbnail
-                    ThumbnailUrl = p.MediaPorts.OrderBy(m => m.Id).Select(m => m.MediaUrl).FirstOrDefault() ?? "",
-                    LikeCount = p.Likes.Count(),
-                    CommentCount = p.Comments.Count()
-                })
-                .ToListAsync();
-        }
-        // Nếu không được xem thì RecentPosts mặc định là list rỗng (đã khởi tạo trong DTO)
-
-        return Result<UserProfileResponseDto>.Success(profile);
+        return Result<UserProfileResponseDto>.Success(cachedProfile);
     }
 
     public async Task<Result<List<UserSummaryDto>>> SearchUsersAsync(string searchTerm)

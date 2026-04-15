@@ -1,4 +1,5 @@
-﻿using InstagramClone.Domain.Entities;
+using InstagramClone.Application.Interfaces.Data;
+using InstagramClone.Domain.Entities;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
@@ -8,7 +9,7 @@ using System.Security.Cryptography.X509Certificates;
 
 namespace InstagramClone.Infrastructure.Data;
 
-public class AppDbContext : IdentityDbContext<AppUser>
+public class AppDbContext : IdentityDbContext<AppUser>, IApplicationDbContext
 {
     public AppDbContext(DbContextOptions<AppDbContext> options) : base(options) { }
         // Khai báo DbSet cho các entity sau này

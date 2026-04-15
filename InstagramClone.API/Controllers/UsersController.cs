@@ -6,7 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace InstagramClone.API.Controllers;
 
-[Route("api/[controller]")]
+[Route("api/users")]
 [ApiController]
 [Authorize] // Bắt buộc đăng nhập
 public class UsersController(IUserServices userServices) : BaseApiController
@@ -26,7 +26,7 @@ public class UsersController(IUserServices userServices) : BaseApiController
     }
 
     [HttpDelete("avatar")]
-    public async Task<ActionResult<bool>> DeleteAccount()
+    public async Task<ActionResult<bool>> DeleteAvatar()
     {
         var result = await userServices.DeleteAvatarAsync();
         return ToActionResult(result);
@@ -50,6 +50,20 @@ public class UsersController(IUserServices userServices) : BaseApiController
     public async Task<ActionResult<List<UserSummaryDto>>> SearchUsers([FromQuery] string query)
     {
         var result = await userServices.SearchUsersAsync(query);
+        return ToActionResult(result);
+    }
+
+    [HttpPost("bio")]
+    public async Task<ActionResult<string>> UpdateBio([FromBody] string bio)
+    {
+        var result = await userServices.UploadBioAsync(bio);
+        return ToActionResult(result);
+    }
+
+    [HttpDelete("bio")]
+    public async Task<ActionResult<string>> DeleteBio()
+    {
+        var result = await userServices.DeleteBioAsync();
         return ToActionResult(result);
     }
 }

@@ -1,18 +1,20 @@
-﻿using InstagramClone.Application.DTOs.Common;
+using InstagramClone.Application.DTOs.Common;
 using InstagramClone.Application.DTOs.post;
 using InstagramClone.Application.Interfaces.Services;
 using InstagramClone.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace InstagramClone.API.Controllers;
 
-[Route("api/posts/{postId}/[controller]")]
+[Route("api/posts/{postId}/comments")]
 [ApiController]
 [Authorize]
 public class CommentsController(ICommentServices commentServices) : BaseApiController
 {
     [HttpPost]
+    [EnableRateLimiting("CommentLimit")]
     public async Task<ActionResult<ResponseCommentDto>> CreateComment(Guid postId, [FromBody] CreateCommentDto comment)
     {
         var result = await commentServices.AddCommentAsync(postId, comment);

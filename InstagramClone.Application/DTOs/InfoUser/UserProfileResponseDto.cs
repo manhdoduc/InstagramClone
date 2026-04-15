@@ -15,6 +15,8 @@ public class UserProfileResponseDto
     public string? Bio { get; set; } = string.Empty;
     public string AvatarUrl { get; set; } = string.Empty;
     public bool IsPrivateAccount { get; set; }
+    public bool MyAccount { get; set; } // ID của người đang xem trang này, để xác định trạng thái quan hệ
+
 
     // 2. Thống kê (Chỉ lấy con số, tuyệt đối không lấy List Entity)
     public int PostCount { get; set; } = 0;

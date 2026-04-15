@@ -1,14 +1,16 @@
-﻿using InstagramClone.Application.DTOs.Auth;
+using InstagramClone.Application.DTOs.Auth;
 using InstagramClone.Application.Interfaces.Services;
 using InstagramClone.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.RateLimiting;
 
 namespace InstagramClone.API.Controllers;
 
-[Route("api/[controller]")]
+[Route("api/auth")]
 [ApiController]
 [AllowAnonymous]
+[EnableRateLimiting("LoginLimit")] // Áp dụng cho toàn bộ api/auth
 public class AuthController(IAuthServices userServices) : BaseApiController
 {
     [HttpPost("register")]
