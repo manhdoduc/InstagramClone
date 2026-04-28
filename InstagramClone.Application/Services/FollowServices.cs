@@ -15,7 +15,9 @@ namespace InstagramClone.Application.Services
         public async Task<Result<string>> SendFollowRequestAsync(string targetId)
         {
             var observerId = currentUser.UserId;
+            // Invalidate follow lists cached per (target, viewer)
             await cache.RemoveAsync($"followers:{targetId}:{observerId}");
+            await cache.RemoveAsync($"following:{observerId}:{observerId}");
 
             if (observerId == targetId)
                 return Result<string>.BadRequest(new Error(ErrorCodes.Conflict, "You cannot follow yourself."));
@@ -59,7 +61,13 @@ namespace InstagramClone.Application.Services
                     message = FollowCodes.CancelledFollowRequest;
                 }
             }
-            await context.SaveChangesAsync();
+            var saved = await context.SaveChangesAsync() > 0;
+            if (saved)
+            {
+                // Profile cache: isFollowing/isRequested + follower/following counts depend on follow relation
+                await cache.BumpScopeVersionAsync($"user:profile:rev:{targetId}");
+                await cache.BumpScopeVersionAsync($"user:profile:rev:{observerId}");
+            }
             return Result<string>.Success(message);
         }
 
@@ -67,6 +75,7 @@ namespace InstagramClone.Application.Services
         {
             var userId = currentUser.UserId;
             await cache.RemoveAsync($"followers:{userId}:{observerId}");
+            await cache.RemoveAsync($"following:{observerId}:{observerId}");
 
             if (string.IsNullOrEmpty(userId))
                 return Result<bool>.BadRequest(new Error(ErrorCodes.Failure, "User must be authenticated to accept follow requests."));
@@ -79,6 +88,11 @@ namespace InstagramClone.Application.Services
             context.Follows.Update(request);
 
             var saved = await context.SaveChangesAsync() > 0;
+            if (saved)
+            {
+                await cache.BumpScopeVersionAsync($"user:profile:rev:{userId}");
+                await cache.BumpScopeVersionAsync($"user:profile:rev:{observerId}");
+            }
             return saved ? Result<bool>.Success(true) : Result<bool>.Failure(new Error(ErrorCodes.Failure, "Failed to accept follow request."));
         }
 
@@ -86,6 +100,7 @@ namespace InstagramClone.Application.Services
         {
             var userId = currentUser.UserId;
             await cache.RemoveAsync($"followers:{userId}:{observerId}");
+            await cache.RemoveAsync($"following:{observerId}:{observerId}");
 
             if (string.IsNullOrEmpty(userId))
                 return Result<bool>.BadRequest(new Error(ErrorCodes.Failure, "User must be authenticated to decline follow requests."));
@@ -98,6 +113,11 @@ namespace InstagramClone.Application.Services
             context.Follows.Update(request);
 
             var saved = await context.SaveChangesAsync() > 0;
+            if (saved)
+            {
+                await cache.BumpScopeVersionAsync($"user:profile:rev:{userId}");
+                await cache.BumpScopeVersionAsync($"user:profile:rev:{observerId}");
+            }
             return saved ? Result<bool>.Success(true) : Result<bool>.Failure(new Error(ErrorCodes.Failure, "Failed to decline follow request."));
         }
 

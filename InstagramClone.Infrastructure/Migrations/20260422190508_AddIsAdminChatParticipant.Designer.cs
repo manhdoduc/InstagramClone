@@ -4,6 +4,7 @@ using InstagramClone.Infrastructure.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace InstagramClone.Infrastructure.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260422190508_AddIsAdminChatParticipant")]
+    partial class AddIsAdminChatParticipant
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -125,9 +128,6 @@ namespace InstagramClone.Infrastructure.Migrations
                         .HasColumnType("bit");
 
                     b.Property<DateTime>("JoinedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<DateTime>("LastReadAt")
                         .HasColumnType("datetime2");
 
                     b.HasKey("ChatRoomId", "UserId");
@@ -330,6 +330,7 @@ namespace InstagramClone.Infrastructure.Migrations
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<string>("Content")
+                        .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<DateTime>("CreatedAt")
@@ -338,18 +339,12 @@ namespace InstagramClone.Infrastructure.Migrations
                     b.Property<bool>("IsDeleted")
                         .HasColumnType("bit");
 
-                    b.Property<string>("MediaUrl")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<Guid?>("ReplyToMessageId")
-                        .HasColumnType("uniqueidentifier");
+                    b.Property<bool>("IsRead")
+                        .HasColumnType("bit");
 
                     b.Property<string>("SenderId")
                         .IsRequired()
                         .HasColumnType("nvarchar(450)");
-
-                    b.Property<int>("Type")
-                        .HasColumnType("int");
 
                     b.Property<DateTime?>("UpdatedAt")
                         .HasColumnType("datetime2");
@@ -358,46 +353,9 @@ namespace InstagramClone.Infrastructure.Migrations
 
                     b.HasIndex("ChatRoomId");
 
-                    b.HasIndex("ReplyToMessageId");
-
                     b.HasIndex("SenderId");
 
                     b.ToTable("Messages");
-                });
-
-            modelBuilder.Entity("InstagramClone.Domain.Entities.MessageReaction", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("Emoji")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<bool>("IsDeleted")
-                        .HasColumnType("bit");
-
-                    b.Property<Guid>("MessageId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<DateTime?>("UpdatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("UserId")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(450)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("MessageId");
-
-                    b.HasIndex("UserId");
-
-                    b.ToTable("MessageReactions");
                 });
 
             modelBuilder.Entity("InstagramClone.Domain.Entities.Post", b =>
@@ -497,7 +455,6 @@ namespace InstagramClone.Infrastructure.Migrations
 
                     b.Property<string>("UserId")
                         .IsRequired()
-                        .HasMaxLength(450)
                         .HasColumnType("nvarchar(450)");
 
                     b.HasKey("Id");
@@ -763,10 +720,6 @@ namespace InstagramClone.Infrastructure.Migrations
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("InstagramClone.Domain.Entities.Message", "ReplyToMessage")
-                        .WithMany()
-                        .HasForeignKey("ReplyToMessageId");
-
                     b.HasOne("InstagramClone.Domain.Entities.AppUser", "Sender")
                         .WithMany()
                         .HasForeignKey("SenderId")
@@ -775,28 +728,7 @@ namespace InstagramClone.Infrastructure.Migrations
 
                     b.Navigation("ChatRoom");
 
-                    b.Navigation("ReplyToMessage");
-
                     b.Navigation("Sender");
-                });
-
-            modelBuilder.Entity("InstagramClone.Domain.Entities.MessageReaction", b =>
-                {
-                    b.HasOne("InstagramClone.Domain.Entities.Message", "Message")
-                        .WithMany("Reactions")
-                        .HasForeignKey("MessageId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.HasOne("InstagramClone.Domain.Entities.AppUser", "User")
-                        .WithMany()
-                        .HasForeignKey("UserId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired();
-
-                    b.Navigation("Message");
-
-                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("InstagramClone.Domain.Entities.Post", b =>
@@ -944,11 +876,6 @@ namespace InstagramClone.Infrastructure.Migrations
             modelBuilder.Entity("InstagramClone.Domain.Entities.Hashtag", b =>
                 {
                     b.Navigation("PostHashtags");
-                });
-
-            modelBuilder.Entity("InstagramClone.Domain.Entities.Message", b =>
-                {
-                    b.Navigation("Reactions");
                 });
 
             modelBuilder.Entity("InstagramClone.Domain.Entities.Post", b =>

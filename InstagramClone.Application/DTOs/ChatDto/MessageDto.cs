@@ -1,4 +1,6 @@
-﻿using System;
+﻿using InstagramClone.Application.DTOs.ChatDto;
+using InstagramClone.Domain.Entities;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -13,6 +15,9 @@ namespace InstagramClone.Application.DTOs.Chats
         public string SenderName { get; set; } = string.Empty; // Tiện cho FE hiển thị tên người chat
         public string Content { get; set; } = string.Empty;
         public DateTime CreatedAt { get; set; }
-        public bool IsRead { get; set; }
+        public MessageType Type { get; set; } = MessageType.Text;
+        public string? MediaUrl { get; set; }
+        public List<ReactionDto> Reactions { get; set; } = [];
+
     }
 }

@@ -4,16 +4,14 @@ using InstagramClone.Common.Constants;
 using InstagramClone.Common.Models.Config;
 using InstagramClone.Common.Results;
 using InstagramClone.Domain.Entities;
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using Serilog;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Security.Cryptography;
-using System.Security.Cryptography;
 using System.Text;
-using Serilog;
 namespace InstagramClone.Application.Services
 {
     public class AuthServices(

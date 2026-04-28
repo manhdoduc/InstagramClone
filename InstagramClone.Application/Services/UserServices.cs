@@ -21,8 +21,6 @@ public class UserServices(IStorageServices storageServices, UserManager<AppUser>
         // 1. Check if the user exists
         string userId = currentUser.UserId; // Override the userId with the current user's ID to ensure users can only upload their own avatars
 
-        await cache.RemoveAsync($"user:profile:{userId}:{userId}"); // Xóa cache profile của chính họ để cập nhật avatar mới nhanh hơn
-
         var user = await userManager.FindByIdAsync(userId);
         if(user is null)
             return Result<string>.NotFound(new Error(ErrorCodes.NotFound, "User not found"));
@@ -57,6 +55,8 @@ public class UserServices(IStorageServices storageServices, UserManager<AppUser>
             await storageServices.DeleteFile(oldAvatarUrl!);
         }
 
+        await cache.BumpScopeVersionAsync($"user:profile:rev:{userId}");
+
         // Trả về link ảnh mới để Frontend hiển thị luôn, đừng trả về text "Success"
         return Result<string>.Success(avatarUrl);
     }
@@ -73,8 +73,6 @@ public class UserServices(IStorageServices storageServices, UserManager<AppUser>
     {
         var userId = currentUser.UserId;
 
-        await cache.RemoveAsync($"user:profile:{userId}:{userId}"); // Xóa cache profile của chính họ để cập nhật avatar mới nhanh hơn
-
         if (userId == null)
             return Result<bool>.BadRequest(new Error(ErrorCodes.BadRequest, "User ID is missing from the current user context."));
         var user = await userManager.FindByIdAsync(userId);
@@ -88,14 +86,13 @@ public class UserServices(IStorageServices storageServices, UserManager<AppUser>
         if (!updateResult.Succeeded)
             return Result<bool>.Failure(updateResult.Errors.Select(e => new Error(e.Code, e.Description)).ToArray());
         await storageServices.DeleteFile(oldAvatarUrl);
+        await cache.BumpScopeVersionAsync($"user:profile:rev:{userId}");
         return Result<bool>.Success(true);
     }
 
     public async Task<Result<string>> ToggleAccountPrivacyAsync()
     {
         var userId = currentUser.UserId;
-
-        await cache.RemoveAsync($"user:profile:{userId}:{userId}"); // Xóa cache profile của chính họ để cập nhật trạng thái bảo mật mới nhanh hơn
 
         if (userId == null)
             return Result<string>.BadRequest(new Error(ErrorCodes.BadRequest, "User ID is missing from the current user context."));
@@ -109,6 +106,8 @@ public class UserServices(IStorageServices storageServices, UserManager<AppUser>
         if (!updateResult.Succeeded)
             return Result<string>.Failure(updateResult.Errors.Select(e => new Error(e.Code, e.Description)).ToArray());
 
+        await cache.BumpScopeVersionAsync($"user:profile:rev:{userId}");
+
         string privacyStatus = user.IsPrivateAccount ? PrivateAccounts.Private : PrivateAccounts.Public;
         return Result<string>.Success($"Account is now {privacyStatus}.");
     }
@@ -116,19 +115,20 @@ public class UserServices(IStorageServices storageServices, UserManager<AppUser>
     public async Task<Result<string>> UploadBioAsync(string bio)
     {
         var userId = currentUser.UserId;
-        await cache.RemoveAsync($"user:profile:{userId}:{userId}"); // Xóa cache profile của chính họ để cập nhật bio mới nhanh hơn
 
         if (userId == null)
             return Result<string>.BadRequest(new Error(ErrorCodes.BadRequest, "User ID is missing from the current user context."));
         
-        var user = userManager.FindByIdAsync(userId).Result;
+        var user = await userManager.FindByIdAsync(userId);
         if (user == null)
             return Result<string>.NotFound(new Error(ErrorCodes.NotFound, "User not found"));
 
         user.Bio = bio;
-        var updateResult = userManager.UpdateAsync(user).Result;
+        var updateResult = await userManager.UpdateAsync(user);
         if (!updateResult.Succeeded)
             return Result<string>.Failure(updateResult.Errors.Select(e => new Error(e.Code, e.Description)).ToArray());
+
+        await cache.BumpScopeVersionAsync($"user:profile:rev:{userId}");
 
         return Result<string>.Success("Bio updated successfully.");
     }
@@ -139,7 +139,7 @@ public class UserServices(IStorageServices storageServices, UserManager<AppUser>
         if (userId == null)
             return Result<string>.BadRequest(new Error(ErrorCodes.BadRequest, "User ID is missing from the current user context."));
 
-        var user = userManager.FindByIdAsync(userId).Result;
+        var user = await userManager.FindByIdAsync(userId);
         if (user == null)
             return Result<string>.NotFound(new Error(ErrorCodes.NotFound, "User not found"));
 
@@ -148,13 +148,20 @@ public class UserServices(IStorageServices storageServices, UserManager<AppUser>
         if (!updateResult.Succeeded)
             return Result<string>.Failure(updateResult.Errors.Select(e => new Error(e.Code, e.Description)).ToArray());
 
+        await cache.BumpScopeVersionAsync($"user:profile:rev:{userId}");
+
         return Result<string>.Success("Bio deleted successfully.");
     }
 
+    /// <summary>
+    /// Cache: scope <c>user:profile:rev:{targetUserId}</c> (token bump khi profile target đổi — xem PostServices / UserServices).
+    /// Entry: <c>user:profile:{viewerId}:{targetUserId}:{rev}</c> — mỗi cặp người xem / người được xem một bản; rev đổi thì key mới, entry cũ hết hiệu lực dần (TTL).
+    /// </summary>
     public async Task<Result<UserProfileResponseDto>> GetUserProfileAsync(string targetUserId)
     {
         var userId = currentUser.UserId;
-        var cacheKey = $"user:profile:{userId}:{targetUserId}";
+        var profileRev = await cache.GetScopeVersionAsync($"user:profile:rev:{targetUserId}");
+        var cacheKey = $"user:profile:{userId}:{targetUserId}:{profileRev}";
 
         // 1. Gọi Cache (Lưu ý: Factory chỉ trả về DTO hoặc null)
         var cachedProfile = await cache.GetOrCreateAsync<UserProfileResponseDto?>(

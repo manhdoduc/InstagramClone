@@ -23,6 +23,7 @@ namespace InstagramClone.Application.DTOs.post
         // Thêm 2 thuộc tính này cho phần Tương tác
         public int LikeCount { get; set; }
         public bool IsLiked { get; set; }
+        public bool IsSaved { get; set; }
 
         public int CommentCount { get; set; }
     }

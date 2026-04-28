@@ -20,6 +20,7 @@ public interface IApplicationDbContext
     DbSet<ChatRoom> ChatRooms { get; set; }
     DbSet<ChatParticipant> ChatParticipants { get; set; }
     DbSet<Message> Messages { get; set; }
+    DbSet<MessageReaction> MessageReactions { get; set; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

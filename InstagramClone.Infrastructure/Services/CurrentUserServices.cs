@@ -10,5 +10,7 @@ namespace InstagramClone.Infrastructure.Services
         public string UserId => httpContextAccessor.HttpContext?.User?.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
         ?? httpContextAccessor.HttpContext?.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value
         ?? string.Empty;
+
+        public string UserName => httpContextAccessor.HttpContext?.User?.FindFirst(JwtRegisteredClaimNames.Name)?.Value?? string.Empty;
     }
 }

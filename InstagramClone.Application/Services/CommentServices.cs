@@ -14,7 +14,7 @@ public class CommentServices(IApplicationDbContext context, ICurrentUserService 
     public async Task<Result<ResponseCommentDto>> AddCommentAsync(Guid postId, CreateCommentDto commentDto)
     {
         var userId = currentUser.UserId;
-        await cache.RemoveAsync($"comments:{postId}:version"); // Invalidate cache for comments of this post
+        await cache.BumpScopeVersionAsync($"comments:{postId}:version");
 
         var postExits = await context.Posts.AnyAsync(p => p.Id == postId);
         if (!postExits)
@@ -45,8 +45,7 @@ public class CommentServices(IApplicationDbContext context, ICurrentUserService 
     public async Task<Result<CursorPagedResponse<ResponseCommentDto>>> GetCommentsByPostIdAsync(Guid postId, CursorPaginationRequest pagination)
     {
         var userId = currentUser.UserId;
-        var versionKey = $"comments:{postId}:version";
-        var version = await cache.GetOrCreateAsync(versionKey, () => Task.FromResult(1));
+        var version = await cache.GetScopeVersionAsync($"comments:{postId}:version");
 
         var cacheKey = $"comments:{postId}:{version}:{userId}:{pagination.Cursor}:{pagination.PageSize}";
 
@@ -120,6 +119,8 @@ public class CommentServices(IApplicationDbContext context, ICurrentUserService 
         try
         {
             var saved = await context.SaveChangesAsync() > 0;
+            if (saved)
+                await cache.BumpScopeVersionAsync($"comments:{comment.PostId}:version");
             return saved
                 ? Result<string>.Success("Comment deleted successfully")
                 : Result<string>.Failure(new Error(ErrorCodes.Failure, "Failed to delete comment"));
@@ -165,6 +166,13 @@ public class CommentServices(IApplicationDbContext context, ICurrentUserService 
             resultMessage = existingLike.IsDeleted ? LikeCodess.Unlike : LikeCodess.Liked;
         }
         await context.SaveChangesAsync();
+
+        var postId = await context.Comments.AsNoTracking()
+            .Where(c => c.Id == commentId)
+            .Select(c => c.PostId)
+            .FirstAsync();
+        await cache.BumpScopeVersionAsync($"comments:{postId}:version");
+
         return Result<string>.Success(resultMessage);
 
     }

@@ -33,6 +33,8 @@ public class AppDbContext : IdentityDbContext<AppUser>, IApplicationDbContext
     public DbSet<Message> Messages { get; set; }
 
 
+    public DbSet<MessageReaction> MessageReactions { get; set; }
+
 
     protected override void OnModelCreating(ModelBuilder builder)
     {
@@ -198,6 +200,23 @@ public class AppDbContext : IdentityDbContext<AppUser>, IApplicationDbContext
             .WithMany()
             .HasForeignKey(m => m.SenderId)
             .OnDelete(DeleteBehavior.Restrict);
+
+        // Cấu hình cho MessageReaction
+        builder.Entity<MessageReaction>()
+            .HasQueryFilter(mr => !mr.IsDeleted); // Tự động bỏ qua các reaction đã bị xóa mềm
+
+        builder.Entity<MessageReaction>()
+            .HasOne(mr => mr.Message)
+            .WithMany(m => m.Reactions)
+            .HasForeignKey(mr => mr.Id)
+            .OnDelete(DeleteBehavior.Cascade); // Xóa tin nhắn -> Xóa luôn cả reaction của tin nhắn đó
+
+        builder.Entity<MessageReaction>()
+            .HasOne(mr => mr.User)
+            .WithMany() // AppUser không cần chứa List<Reaction> để tránh phình to
+            .HasForeignKey(mr => mr.UserId)
+            .OnDelete(DeleteBehavior.Restrict); // Rất quan trọng: Tránh lỗi xóa user kéo theo xóa bảng lằng nhằng
+
 
         // Đổi tên các bảng Identity mặc định cho sạch đẹp (tùy chọn)
         builder.Entity<AppUser>().ToTable("Users");

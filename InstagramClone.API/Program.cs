@@ -1,3 +1,5 @@
+using HealthChecks.UI.Client;
+using InstagramClone.API.Middlewares;
 using InstagramClone.Application.Interfaces.Caching;
 using InstagramClone.Application.Interfaces.Chats;
 using InstagramClone.Application.Interfaces.Data;
@@ -8,16 +10,16 @@ using InstagramClone.Domain.Entities;
 using InstagramClone.Infrastructure.Data;
 using InstagramClone.Infrastructure.Hubs;
 using InstagramClone.Infrastructure.Services;
-using InstagramClone.API.Middlewares;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using Serilog;
 using Serilog.Events;
-using Serilog.Extensions.Hosting;
 using Swashbuckle.AspNetCore.Filters;
 using System.Reflection;
 using System.Text;
@@ -60,7 +62,8 @@ try
     builder.Services.AddScoped<IFollowService, FollowServices>();
     builder.Services.AddScoped<IChatService, ChatServices>();
     builder.Services.AddScoped<IChatNotificationService, ChatNotificationService>();
-    builder.Services.AddScoped<ICacheService, RedisCacheService>();
+    builder.Services.AddScoped<ICacheService, RedisCacheService>(); 
+
 
     builder.Services.AddControllers();
     // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
@@ -115,7 +118,12 @@ try
     if(jwtSettings == null)
     {
         Log.Fatal("Failed to load JWT settings from configuration.");
-        throw new Exception("JWT settings are not configured properly.");
+        throw new Exception("JWT settings are not configured properly."); 
+    }
+    if (string.IsNullOrEmpty(jwtSettings.Key))
+    {
+        Log.Fatal("JWT Key is missing! Check your User Secrets or appsettings.json.");
+        throw new Exception("JWT Key is not configured.");
     }
 
     builder.Services.AddAuthentication(options =>
@@ -242,12 +250,16 @@ try
     builder.Services.AddSignalR();
 
     // Dùng Redis Cache thay cho DistributedMemoryCache
-    builder.Services.AddStackExchangeRedisCache(options =>
-    {
-        options.Configuration = "localhost:6379"; // Cấu hình port mặc định của redis
-    });
+
+    //builder.Services.AddStackExchangeRedisCache(options =>
+    //{
+    //    options.Configuration = "localhost:6379"; // Cấu hình port mặc định của redis
+    //});
     // đang dùng IDistributedCache của Microsoft, nhưng đã cấu hình để sử dụng Redis thay vì bộ nhớ trong. Điều này giúp cải thiện hiệu suất và khả năng mở rộng khi cache dữ liệu.
     // sau này cấu hình sử dụng Redis Cache, chỉ cần thay đổi cấu hình ở đây mà không cần sửa code ở các service khác, vì chúng ta đã inject ICacheService (RedisCacheService) vào các service khác.
+
+    builder.Services.AddDistributedMemoryCache();
+
 
     builder.Services.AddRateLimiter(options =>
     {
@@ -327,7 +339,21 @@ try
 
     });
 
+    builder.Services.AddHealthChecks()
+    .AddCheck("self", () => HealthCheckResult.Healthy("Application is running"), tags: ["api"])
+    .AddDbContextCheck<AppDbContext>(
+        name: "database",
+        failureStatus: HealthStatus.Unhealthy,
+        tags: ["db", "sql"]
+    );
 
+    builder.Services.AddHealthChecksUI(setup =>
+    {
+        setup.SetEvaluationTimeInSeconds(10); // check every 10 seconds
+        setup.MaximumHistoryEntriesPerEndpoint(50);
+        setup.AddHealthCheckEndpoint("Instagram Api", "/healthz");
+    })
+    .AddInMemoryStorage();
 
     var app = builder.Build();
 
@@ -362,6 +388,8 @@ try
         };
     });
 
+
+
     // 2. Thêm đoạn này vào phần pipeline, PHẢI NẰM TRƯỚC app.UseAuthentication() và app.UseAuthorization()
     app.UseCors("AllowAll");
 
@@ -376,6 +404,7 @@ try
 
     app.UseStaticFiles();
 
+
     app.UseAuthentication();
 
     app.UseAuthorization();
@@ -385,6 +414,57 @@ try
     app.MapHub<ChatHub>("/chathub");
 
     app.MapControllers();
+
+
+    //app.MapHealthChecks("/healthz", new HealthCheckOptions
+    //{
+    //    ResponseWriter = async (context, report) =>
+    //    {
+    //        context.Response.ContentType = "application/json";
+
+    //        var response = new
+    //        {
+    //            status = report.Status.ToString(),
+    //            checks = report.Entries.Select(e => new
+    //            {
+    //                name = e.Key,
+    //                status = e.Value.Status.ToString(),
+    //                description = e.Value.Description,
+    //                duration = e.Value.Duration.TotalMilliseconds,
+    //                exception = e.Value.Exception?.Message,
+    //                data = e.Value.Data
+    //            }),
+    //            totalDuration = report.TotalDuration.TotalMilliseconds
+    //        };
+
+    //        await context.Response.WriteAsJsonAsync(response, new JsonSerializerOptions
+    //        {
+    //            WriteIndented = true
+    //        });
+    //    }
+    //});
+
+    // 
+    app.MapHealthChecks("/healthz", new HealthCheckOptions
+    {
+        ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
+    });
+
+    app.MapHealthChecks("/healthz/live", new HealthCheckOptions
+    {
+        Predicate = _ => false // Chỉ trả về "Healthy" nếu ứng dụng đang chạy, không kiểm tra bất kỳ thành phần nào khác
+    });
+
+    app.MapHealthChecks("/healthz/ready", new HealthCheckOptions
+    {
+        Predicate = check => check.Tags.Contains("db") // cái này dùng check database hoạt động 
+    });
+
+    app.MapHealthChecksUI(options =>
+    {
+        options.ApiPath = "/healthchecks-api";
+        options.UIPath = "/healthchecks-ui";
+    });
 
     Log.Information("Application started successfully.");
 

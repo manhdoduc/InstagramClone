@@ -1,20 +1,114 @@
 using InstagramClone.Application.DTOs.ChatDto;
 using InstagramClone.Application.DTOs.Chats;
 using InstagramClone.Application.DTOs.Common;
+using InstagramClone.Application.DTOs.post;
+using InstagramClone.Application.Interfaces.Caching;
 using InstagramClone.Application.Interfaces.Chats;
-using InstagramClone.Common.Results;
-using InstagramClone.Domain.Entities;
 using InstagramClone.Application.Interfaces.Data;
 using InstagramClone.Application.Interfaces.Services;
+using InstagramClone.Common.Constants;
+using InstagramClone.Common.Results;
+using InstagramClone.Domain.Entities;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
+using Serilog;
+using System.Xml.XPath;
 
 namespace InstagramClone.Application.Services
 {
     public class ChatServices(
         IApplicationDbContext context,
         ICurrentUserService currentUser,
-        IChatNotificationService chatNotificationService) : IChatService
+        ICacheService cache,
+        IChatNotificationService chatNotificationService,
+        IStorageServices storageServices
+        
+
+        ) : IChatService
     {
+        // 
+        public async Task<Result<bool>> AddMemberToGroupAsync(string targetUserId, Guid chatRoomId)
+        {
+            var currentUserId = currentUser.UserId;
+
+            var isPrivate = await context.Users.FirstOrDefaultAsync(u => u.Id == targetUserId && u.IsPrivateAccount == false);
+            if (isPrivate == null) return Result<bool>.Failure(new Error(ErrorCodes.Failure, "User is private"));
+
+            // 1. Kiểm tra xem người thực hiện lệnh có ở trong nhóm không
+            var isCurrentMember = await context.ChatParticipants
+                .AnyAsync(cp => cp.ChatRoomId == chatRoomId && cp.UserId == currentUserId);
+            if (!isCurrentMember)
+                return Result<bool>.Failure(new Error(ErrorCodes.Failure, "user is already in the group"));
+
+            // 2. Kiểm tra xem targetUserId đã là thành viên chưa
+            var isTargetAlreadyMember = await context.ChatParticipants
+                .AnyAsync(cp => cp.ChatRoomId == chatRoomId && cp.UserId == targetUserId);
+            if (isTargetAlreadyMember)
+                return Result<bool>.Failure(new Error(ErrorCodes.Failure, "user is member"));
+
+            // 3. Thêm thành viên mới
+            var newParticipant = new ChatParticipant { ChatRoomId = chatRoomId, UserId = targetUserId };
+            context.ChatParticipants.Add(newParticipant);
+            await context.SaveChangesAsync();
+
+            // 4. Dọn Cache Inbox cho người mới để họ thấy nhóm này hiện lên sidebar
+            await cache.RemoveAsync($"chat:inbox:{targetUserId}");
+
+            // 5. Gửi thông báo SignalR (Dùng ChatNotificationService của bạn)
+            var room = await context.ChatRooms.FindAsync(chatRoomId);
+            await chatNotificationService.NotifyNewChatRoomAsync(new List<string> { targetUserId }, chatRoomId, $"Bạn đã được thêm vào nhóm {room?.Name}");
+
+            return Result<bool>.Success(true);
+        }
+
+        public async Task<Result<bool>> LeaveGroupAsync(Guid chatRoomId)
+        {
+            var currentUserId = currentUser.UserId;
+
+            var participant = await context.ChatParticipants.FirstOrDefaultAsync(cp => cp.ChatRoomId == chatRoomId && cp.UserId == currentUserId);
+            if (participant == null)
+                return Result<bool>.Failure(new Error(ErrorCodes.Failure, ""));
+
+            context.ChatParticipants.Remove(participant);
+            await context.SaveChangesAsync();
+
+            await cache.RemoveAsync($"chat:inbox:{currentUserId}");
+
+            return Result<bool>.Success(true);
+        }
+        public async Task<Result<bool>> RemoveMemberFromGroupAsync(string targetUserId, Guid chatRoomId)
+        {
+            var currentUserId = currentUser.UserId;
+
+            // 1. Logic check quyền: Admin mới được xóa người khác. 
+            var requesterInfo = await context.ChatParticipants
+                .Where(cp => cp.ChatRoomId == chatRoomId && cp.UserId == currentUserId)
+                .Select(cp => new { cp.IsAdmin })
+                .FirstOrDefaultAsync();
+
+            if (requesterInfo == null || !requesterInfo.IsAdmin)
+            {
+                return Result<bool>.Failure(new Error(ErrorCodes.Failure, ""));
+            }
+
+            if (currentUserId == targetUserId) return Result<bool>.Failure();
+
+            // 2. Tìm thành viên cần xóa
+            var targetParticipant = await context.ChatParticipants
+                .FirstOrDefaultAsync(cp => cp.ChatRoomId == chatRoomId && cp.UserId == targetUserId);
+
+            if (targetParticipant == null) return Result<bool>.Failure(new Error(ErrorCodes.Failure, ""));
+
+            context.ChatParticipants.Remove(targetParticipant);
+            await context.SaveChangesAsync();
+
+            // 3. Quan trọng: Invalidate Cache cho người bị xóa
+            await cache.RemoveAsync($"chat:inbox:{targetUserId}");
+
+            return Result<bool>.Success(true);
+        }
+
         public async Task<Result<Guid>> CreateGroupRoomAsync(CreateGroupDto groupDto)
         {
             var currentUserId = currentUser.UserId;
@@ -37,7 +131,8 @@ namespace InstagramClone.Application.Services
             participants.Add(new ChatParticipant
             {
                 ChatRoomId = newChatRoom.Id,
-                UserId = currentUserId
+                UserId = currentUserId,
+                IsAdmin = true
             });
 
             context.ChatParticipants.AddRange(participants);
@@ -93,7 +188,7 @@ namespace InstagramClone.Application.Services
             return Result<Guid>.Success(newChatRoom.Id);
         }
 
-        public async Task<Result<List<MessageDto>>> GetRoomMessagesAsync(Guid chatRoomId, CursorPaginationRequestMessage messagePagi)
+        public async Task<Result<CursorPagedResponse<MessageDto>>> GetMessagesRoomAsync(Guid chatRoomId, CursorPaginationRequest messagePagi)
         {
             try
             {
@@ -101,7 +196,7 @@ namespace InstagramClone.Application.Services
                 var isMember = await context.ChatParticipants.AnyAsync(cp => cp.ChatRoomId == chatRoomId && cp.UserId == currentUserId);
 
                 if (!isMember)
-                    return Result<List<MessageDto>>.Failure();
+                    return Result<CursorPagedResponse<MessageDto>>.Failure();
 
                 var query = context.Messages.AsNoTracking();
 
@@ -114,25 +209,54 @@ namespace InstagramClone.Application.Services
                     .Where(m => m.ChatRoomId == chatRoomId)
                     .Include(m => m.Sender) // Include để lấy thông tin người gửi
                     .OrderByDescending(m => m.CreatedAt)
-                    .Take(messagePagi.ChatSize + 1)
+                    .Take(messagePagi.PageSize + 1)
+                    // Cập nhật đoạn Select trong GetMessagesRoomAsync
                     .Select(m => new MessageDto
                     {
                         Id = m.Id,
                         SenderId = m.SenderId,
                         SenderName = m.Sender.UserName!,
-                        Content = m.Content,
+                        Content = m.IsDeleted ? "Tin nhắn đã bị thu hồi" : m.Content!,
                         CreatedAt = m.CreatedAt,
-                        IsRead = m.IsRead
+                        Type = m.Type,
+                        MediaUrl = m.IsDeleted ? null : m.MediaUrl,
+                        // Load thêm danh sách Reaction để FE hiển thị
+                        Reactions = m.Reactions.Select(r => new ReactionDto
+                        {
+                            Emoji = r.Emoji,
+                            UserId = r.UserId,
+                            UserName = r.User.UserName!
+                        }).ToList()
                     })
                     .ToListAsync();
 
+                var hasNextMessage = messages.Count > messagePagi.PageSize;
+                DateTime? nextCursor = null;
+
+                if (hasNextMessage)
+                {
+                    messages.RemoveAt(messagePagi.PageSize);
+                    nextCursor = messages.Last().CreatedAt;
+                }
+
+                var mess = new CursorPagedResponse<MessageDto>
+                {
+                    Items = messages,
+                    HasNextPage = hasNextMessage,
+                    NextCursor = nextCursor,
+                };
                
-                return Result<List<MessageDto>>.Success(messages);
+                if(nextCursor == null)
+                {
+                    await MarkRoomAsReadAsync(chatRoomId);
+                }
+
+                return Result<CursorPagedResponse<MessageDto>>.Success(mess);
             }
             catch (Exception)
             {
                 // Log lỗi nếu cần
-                return Result<List<MessageDto>>.Failure(new Error("Error", "Đã xảy ra lỗi khi lấy tin nhắn."));
+                return Result<CursorPagedResponse<MessageDto>>.Failure(new Error(ErrorCodes.Failure, "Đã xảy ra lỗi khi lấy tin nhắn."));
             }
         }
 
@@ -140,76 +264,217 @@ namespace InstagramClone.Application.Services
         public async Task<Result<List<ChatRoomDto>>> GetUserChatRoomsAsync()
         {
             var currentUserId = currentUser.UserId;
+            string cacheKey = $"chat:inbox:{currentUserId}";
 
-            var rooms = await context.ChatRooms
-                .Where(cr => cr.ChatParticipant.Any(cp => cp.UserId == currentUserId))
-                .Select(cr => new ChatRoomDto
+            var rooms = await cache.GetOrCreateAsync(
+                cacheKey,
+                factory: async () =>
                 {
-                    Id = cr.Id,
-                    RoomName = cr.IsGroupChat ? cr.Name : cr.ChatParticipant
-                        .Where(cp => cp.UserId != currentUserId)
-                        .Select(cp => cp.User.UserName)
-                        .FirstOrDefault() ?? "Unknown",
-                    IsGroupChat = cr.IsGroupChat,
-                    LastestMessage = cr.Messages.OrderByDescending(m => m.CreatedAt).Select(m => m.Content).FirstOrDefault(),
-                    LastestMessageAt = cr.Messages.OrderByDescending(m => m.CreatedAt).Select(m => m.CreatedAt).FirstOrDefault(),
-                    UnreadMessagesCount = cr.Messages.Count(m => m.CreatedAt > DateTime.UtcNow.AddDays(-7) && !m.IsRead && m.SenderId != currentUserId)    
-                })
-                .OrderByDescending(cr => cr.LastestMessageAt)
-                .ToListAsync();
+                    return await context.ChatRooms
+                        .Where(cr => cr.ChatParticipant.Any(cp => cp.UserId == currentUserId))
+                        .Select(cr => new ChatRoomDto
+                        {
+                            Id = cr.Id,
+                            RoomName = cr.IsGroupChat ? cr.Name : cr.ChatParticipant
+                                .Where(cp => cp.UserId != currentUserId)
+                                .Select(cp => cp.User.UserName)
+                                .FirstOrDefault() ?? "Unknown",
+
+                            IsGroupChat = cr.IsGroupChat,
+
+                            LastestMessage = cr.Messages.OrderByDescending(m => m.CreatedAt).Select(m => m.Content).FirstOrDefault(),
+
+                            LastestMessageAt = cr.Messages.OrderByDescending(m => m.CreatedAt).Select(m => m.CreatedAt).FirstOrDefault(),
+                            // LOGIC MỚI: Đếm những tin nhắn được tạo SAU mốc LastReadAt của user hiện tại
+
+                            UnreadMessagesCount = cr.Messages.Count(m =>
+                                m.SenderId != currentUserId &&
+                                m.CreatedAt > cr.ChatParticipant
+                                               .Where(cp => cp.UserId == currentUserId)
+                                               .Select(cp => cp.LastReadAt)
+                                               .FirstOrDefault())
+                        })
+                        .OrderByDescending(cr => cr.LastestMessageAt)
+                        .ToListAsync();
+                },
+                TimeSpan.FromSeconds(30) // Cache ngắn vì Inbox cần cập nhật nhanh
+            );
 
             return Result<List<ChatRoomDto>>.Success(rooms);
         }
 
+        
         public async Task<Result<bool>> MarkRoomAsReadAsync(Guid chatRoomId)
         {
             var currentUserId = currentUser.UserId;
-            var unreadMessages = await context.Messages
-                .Where(m => m.ChatRoomId == chatRoomId && m.SenderId != currentUserId && !m.IsRead)
-                .ToListAsync();
 
-            if(!unreadMessages.Any())
-                return Result<bool>.Success(false);
+            var rowsAffected = await context.ChatParticipants
+                .Where(m => m.ChatRoomId == chatRoomId && m.UserId == currentUserId)
+                .ExecuteUpdateAsync(ex => ex.SetProperty(cp => cp.LastReadAt, DateTime.UtcNow));
 
-            foreach (var mess in unreadMessages)
+            if (rowsAffected > 0)
             {
-                mess.IsRead = true;
+                // Xóa cache inbox để cập nhật lại số UnreadMessagesCount
+                await cache.RemoveAsync($"chat:inbox:{currentUserId}");
+                return Result<bool>.Success(true);
             }
+
+            return Result<bool>.Success(false);
+        }
+
+        public async Task<Result<MessageDto>> CreateMessageAsync(SendMessageDto request)
+        {
+            var currentUserId = currentUser.UserId;
+
+            // 1. Kiểm tra xem người gửi có trong phòng không (Bảo mật)
+            var participant = await context.ChatParticipants
+                .FirstOrDefaultAsync(cp => cp.ChatRoomId == request.ChatRoomId && cp.UserId == currentUserId);
+
+            if (participant == null)
+                return Result<MessageDto>.Failure(new Error(ErrorCodes.Forbid, "Bạn không có quyền nhắn tin trong phòng này."));
+
+            // 2. Tạo đối tượng tin nhắn mới
+            var message = new Message
+            {
+                Id = Guid.NewGuid(),
+                ChatRoomId = request.ChatRoomId,
+                SenderId = currentUserId,
+                Content = request.Content,
+                Type = request.Type,
+                MediaUrl = request.MediaUrl,
+                ReplyToMessageId = request.ReplyToMessageId,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            context.Messages.Add(message);
+
+            // 3. Cập nhật mốc LastReadAt cho chính người gửi (vì mình gửi thì coi như đã xem)
+            participant.LastReadAt = DateTime.UtcNow;
+
             await context.SaveChangesAsync();
+
+            // 4. Cập nhật Cache Inbox (Như chúng ta đã bàn - cộng dồn số tin chưa đọc cho người khác)
+            // Sau khi lưu xong, Mạnh gọi hàm UpdateInboxCacheAsync cho những người còn lại trong phòng nhé
+
+            // 5. Trả về DTO để Controller bắn qua SignalR
+            var messdto = new MessageDto
+            {
+                Id = message.Id,
+                SenderId = message.SenderId,
+                SenderName = currentUser.UserName,
+                Content = message.Content!,
+                CreatedAt = message.CreatedAt,
+                Type = message.Type,
+                MediaUrl = message.MediaUrl,
+            };
+
+            await chatNotificationService.NotifyReceiveMessageAsync(message.ChatRoomId, messdto);
+
+            return Result<MessageDto>.Success(messdto);
+        }
+
+        public async Task<Result<MessageDto>> UploadMessageMediaAsync(IFormFile file, Guid chatRoomId)
+        {
+            var currentUserId = currentUser.UserId;
+            var isMember = await context.ChatParticipants.AnyAsync(cp => cp.ChatRoomId == chatRoomId && cp.UserId == currentUserId);
+            if (!isMember) return Result<MessageDto>.Failure(new Error("Failure", "User not a member"));
+
+            // 1. Upload ảnh
+            var uploadResult = await storageServices.UploadImageAsync(file, currentUserId, "image-chat", 400, 400);
+            if (!uploadResult.IsSuccess) return Result<MessageDto>.Failure(new Error("Failure", "Upload failed"));
+
+            // 2. Tạo Request
+            var request = new SendMessageDto
+            {
+                ChatRoomId = chatRoomId,
+                Type = MessageType.Image,
+                MediaUrl = uploadResult.Value,
+                Content = "[Hình ảnh]"
+            };
+
+            // 3. Gọi hàm lưu
+            var result = await CreateMessageAsync(request);
+
+            if (result.IsSuccess)
+            {
+                return result;
+            }
+            
+            return Result<MessageDto>.Failure();
+        }
+
+        public async Task<Result<bool>> UnsendMessageAsync(Guid messageId )
+        {
+            var currentUserId = currentUser.UserId;
+
+            // 1. Tìm tin nhắn và kiểm tra quyền chủ sở hữu
+            var message = await context.Messages
+                .FirstOrDefaultAsync(m => m.Id == messageId && m.SenderId == currentUserId);
+
+            if (message == null)
+                return Result<bool>.Failure(new Error(ErrorCodes.NotFound, "Không tìm thấy tin nhắn hoặc bạn không có quyền thu hồi."));
+
+            if (message.CreatedAt < DateTime.UtcNow.AddDays(-1))
+            {
+                return Result<bool>.Failure(new Error(ErrorCodes.Forbid, "Đã hết hạn thu hồi"));
+            }
+
+            // 2. Đánh dấu xóa (Soft Delete)
+            message.IsDeleted = true;
+            message.Content = "Tin nhắn đã bị thu hồi"; // Ghi đè nội dung để bảo mật
+            message.MediaUrl = null; // Xóa link ảnh/video nếu có
+
+            await context.SaveChangesAsync();
+
+            // 3. Xóa Cache Inbox (Để người khác thấy tin nhắn cuối cùng đã bị thu hồi)
+            // Bạn có thể gọi hàm UpdateInboxCacheAsync tại đây nếu muốn
+
+            await chatNotificationService.NotifyMessageUnsentAsync(message.ChatRoomId, messageId);
             return Result<bool>.Success(true);
         }
 
-        public async Task<Result<Message>> SaveMessageAsync(Guid chatRoomId, string content)
+        public async Task<Result<MessageReaction>> ReactToMessageAsync(Guid messageId, string emoji)
         {
-            var senderUserId = currentUser.UserId;
+            var currentUserId = currentUser.UserId;
 
-            var isMember = await context.ChatParticipants.AnyAsync(cp => cp.ChatRoomId == chatRoomId && cp.UserId == senderUserId);
+            // 1. Kiểm tra xem tin nhắn có tồn tại không
+            var message = await context.Messages.FirstOrDefaultAsync(m => m.Id == messageId);
 
-            if (!isMember)
-                throw new Exception("Bạn không phải là thành viên của phòng chat này.");
+            if (message == null) return Result<MessageReaction>.Failure(new Error(ErrorCodes.NotFound, "Tin nhắn không tồn tại."));
+            // 2. Kiểm tra xem User này đã từng thả cảm xúc vào tin này chưa
+            var existingReaction = await context.MessageReactions
+                .FirstOrDefaultAsync(mr => mr.Id == messageId && mr.UserId == currentUserId);
 
-            var message = new Message
+            if (existingReaction != null)
             {
-                ChatRoomId = chatRoomId,
-                SenderId = senderUserId,
-                Content = content
-            };
+                if (existingReaction.Emoji == emoji)
+                {
+                    // Nếu bấm lại đúng Emoji cũ -> Xóa (Toggle off)
+                    context.MessageReactions.Remove(existingReaction);
+                }
+                else
+                {
+                    // Nếu bấm Emoji khác -> Cập nhật cái mới
+                    existingReaction.Emoji = emoji;
+                }
+            }
+            else
+            {
+                // 3. Chưa có thì tạo mới
+                existingReaction = new MessageReaction
+                {
+                    Id = Guid.NewGuid(),
+                    UserId = currentUserId,
+                    MessageId = messageId,
+                    Emoji = emoji
+                };
+                context.MessageReactions.Add(existingReaction);
+            }
 
-            //Console.WriteLine($"User {senderUserId} đang gửi tin vào group: {chatRoomId}");
-
-            context.Messages.Add(message);
             await context.SaveChangesAsync();
 
-            var responseMessage =  new Message
-            {
-                Id = message.Id,
-                ChatRoomId = message.ChatRoomId,
-                SenderId = message.SenderId,
-                Content = message.Content,
-                CreatedAt = message.CreatedAt
-            };
-                
-            return Result<Message>.Success(responseMessage);
+            await chatNotificationService.NotifyMessageReactedAsync(message.ChatRoomId, messageId, currentUserId, emoji);
+            return Result<MessageReaction>.Success(existingReaction);
         }
     }
 }

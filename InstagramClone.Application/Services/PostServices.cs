@@ -23,7 +23,7 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
         // 2. create post
         var newPost = new Post
         {
-            Content = createPostDto.Content,
+            Content = createPostDto.Content ?? string.Empty,
             UserId = userId,
             MediaPorts = new List<PostMedia>()
         };
@@ -54,7 +54,7 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
             // 4. save post to database
             context.Posts.Add(newPost);
 
-            var tags = ExtractHashtags(createPostDto.Content);
+            var tags = ExtractHashtags(createPostDto.Content ?? string.Empty);
 
             if(tags.Any())
             {
@@ -88,6 +88,9 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
             }
                 
             Log.Information("User {UserId} created post {PostId} with {MediaCount} images", userId, newPost.Id, newPost.MediaPorts.Count);
+            await cache.BumpScopeVersionAsync("posts:feed:data");
+            await cache.BumpScopeVersionAsync("posts:search:data");
+            await cache.BumpScopeVersionAsync($"user:profile:rev:{userId}");
             return Result<string>.Success(newPost.Id.ToString());
 
         }
@@ -106,7 +109,6 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
 
     public async Task<Result> DeletePostAsync(Guid postId)
     {
-        await cache.RemoveAsync($"post:detail:{postId}"); // xóa cache chi tiết bài viết
         var userId = currentUser.UserId;
         if(string.IsNullOrEmpty(userId))
             return Result.Failure(new Error("Unauthorized", "User is not authenticated"));
@@ -144,6 +146,10 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
             }
 
             Log.Information("User {UserId} deleted post {PostId}", userId, postId);
+            await cache.BumpScopeVersionAsync($"post:detail:rev:{postId}");
+            await cache.BumpScopeVersionAsync("posts:feed:data");
+            await cache.BumpScopeVersionAsync("posts:search:data");
+            await cache.BumpScopeVersionAsync($"user:profile:rev:{post.UserId}");
             return Result.Success();
         }
         catch (Exception ex)
@@ -155,8 +161,9 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
 
     public async Task<Result<CursorPagedResponse<ResponsePostDto>>> GetFeedsAsync(CursorPaginationRequest cursorPagination)
     {
-
-        var cacheKey = $"posts:feed:{currentUser.UserId}:{cursorPagination.PageSize}:{cursorPagination.Cursor}";
+        var feedDataVer = await cache.GetScopeVersionAsync("posts:feed:data");
+        var feedUserScope = await cache.GetScopeVersionAsync($"posts:feed:scope:{currentUser.UserId}");
+        var cacheKey = $"posts:feed:{currentUser.UserId}:{feedDataVer}:{feedUserScope}:{cursorPagination.PageSize}:{cursorPagination.Cursor}";
 
         var cachedFeed = await cache.GetOrCreateAsync<CursorPagedResponse<ResponsePostDto>>(cacheKey, factory: async () =>
         {
@@ -187,6 +194,7 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
 
                     LikeCount = p.Likes.Count(),
                     IsLiked = p.Likes.Any(l => l.UserId == currentUser.UserId && !l.IsDeleted), // kiểm tra xem user hiện tại đã like bài post chưa
+                    IsSaved = context.SavedPosts.Any(s => s.PostId == p.Id && s.UserId == currentUser.UserId),
 
                     CommentCount = p.Comments.Count()
                 })
@@ -218,7 +226,7 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
     public async Task<Result<bool>> UpdatePostAsync(string content, Guid postId)
     {
         var userId = currentUser.UserId;
-        await cache.RemoveAsync($"post:detail:{postId}"); // xóa cache chi tiết bài viết để cập nhật nội dung mới
+        await cache.BumpScopeVersionAsync($"post:detail:rev:{postId}");
         // 1. Chỉ chọc xuống DB 1 lần duy nhất để lấy bài viết
         var postToUpdate = await context.Posts.FirstOrDefaultAsync(p => p.Id == postId);
 
@@ -245,6 +253,9 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
             // Nếu user bấm "Sửa" nhưng KHÔNG thay đổi chữ nào, EF Core sẽ phát hiện ra và không chạy lệnh SQL.
             // Lúc này rowsAffected = 0. Đây không phải là lỗi, nên ta vẫn trả về Success.
 
+            await cache.BumpScopeVersionAsync("posts:feed:data");
+            await cache.BumpScopeVersionAsync("posts:search:data");
+            await cache.BumpScopeVersionAsync($"user:profile:rev:{postToUpdate.UserId}");
             return Result<bool>.Success(true);
         }
         catch (Exception ex)
@@ -256,7 +267,8 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
     public async Task<Result<ResponsePostDto>> GetPostByIdAsync(Guid postId)
     {
         var userId = currentUser.UserId;
-        var cacheKey = $"post:detail:{postId}:{userId}";
+        var detailRev = await cache.GetScopeVersionAsync($"post:detail:rev:{postId}");
+        var cacheKey = $"post:detail:{postId}:{userId}:{detailRev}";
 
         var cachedPost = await cache.GetOrCreateAsync<ResponsePostDto?>(cacheKey, factory: async () => 
         {
@@ -274,6 +286,7 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
                 MediaUrls = p.MediaPorts.Select(m => m.MediaUrl).ToList(),
                 LikeCount = p.Likes.Count(),
                 IsLiked = p.Likes.Any(l => l.UserId == userId && !l.IsDeleted), // kiểm tra xem user hiện tại đã like bài post chưa
+                IsSaved = context.SavedPosts.Any(s => s.PostId == p.Id && s.UserId == userId),
                 CommentCount = p.Comments.Count()
             })
             .FirstOrDefaultAsync();
@@ -354,15 +367,26 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
             existingSave.IsDeleted = !existingSave.IsDeleted; // toggle trạng thái saved/unsaved
             context.SavedPosts.Update(existingSave);
         }
-        var saved = await context.SaveChangesAsync() > 0;
-        return saved ? Result.Success() : Result.Failure(new Error(ErrorCodes.Failure, "Failed to toggle save post"));
+        try
+        {
+            await context.SaveChangesAsync();
+            await cache.BumpScopeVersionAsync($"posts:feed:scope:{currentUserId}");
+            await cache.BumpScopeVersionAsync($"posts:saved:scope:{currentUserId}");
+            await cache.BumpScopeVersionAsync($"post:detail:rev:{postId}");
+            return Result.Success();
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Toggle save failed for post {PostId} user {UserId}", postId, currentUserId);
+            return Result.Failure(new Error(ErrorCodes.Failure, "Không cập nhật được trạng thái lưu bài."));
+        }
     }
     
     public async Task<Result<CursorPagedResponse<ResponsePostDto>>> GetSavedPostsAsync(CursorPaginationRequest cursorPagination)
     {
         var userId = currentUser.UserId;
-
-        var cacheKey = $"posts:saved:{userId}:{cursorPagination.PageSize}:{cursorPagination.Cursor}";
+        var savedScope = await cache.GetScopeVersionAsync($"posts:saved:scope:{userId}");
+        var cacheKey = $"posts:saved:{userId}:{savedScope}:{cursorPagination.PageSize}:{cursorPagination.Cursor}";
         var cachedSavedPosts = await cache.GetOrCreateAsync<CursorPagedResponse<ResponsePostDto>>(cacheKey, factory: async () =>
         {
             var query = context.SavedPosts
@@ -387,6 +411,7 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
                     MediaUrls = p.MediaPorts.Select(m => m.MediaUrl).ToList(),
                     LikeCount = p.Likes.Count(),
                     IsLiked = p.Likes.Any(l => l.UserId == userId && !l.IsDeleted), // kiểm tra xem user hiện tại đã like bài post chưa
+                    IsSaved = true,
                     CommentCount = p.Comments.Count()
                 })
                 .ToListAsync();
@@ -432,7 +457,9 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
     public async Task<Result<CursorPagedResponse<ResponsePostDto>>> GetSearchPostsAsync(string content, CursorPaginationRequest request)
     {
         var currentUserId = currentUser.UserId;
-        var cacheKey = $"posts:search:{content}:{currentUserId}:{request.PageSize}:{request.Cursor}";
+        var searchDataVer = await cache.GetScopeVersionAsync("posts:search:data");
+        var feedUserScope = await cache.GetScopeVersionAsync($"posts:feed:scope:{currentUser.UserId}");
+        var cacheKey = $"posts:search:{content}:{currentUserId}:{searchDataVer}:{feedUserScope}:{request.PageSize}:{request.Cursor}";
 
         var cachedSearchResult = await cache.GetOrCreateAsync<CursorPagedResponse<ResponsePostDto>>(cacheKey, factory: async () =>
         {
@@ -482,7 +509,8 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
                     MediaUrls = p.MediaPorts.Select(m => m.MediaUrl).ToList(),
                     LikeCount = p.Likes.Count(),
                     CommentCount = p.Comments.Count(),
-                    IsLiked = !string.IsNullOrEmpty(currentUserId) && p.Likes.Any(l => l.UserId == currentUserId)
+                    IsLiked = !string.IsNullOrEmpty(currentUserId) && p.Likes.Any(l => l.UserId == currentUserId),
+                    IsSaved = !string.IsNullOrEmpty(currentUserId) && context.SavedPosts.Any(s => s.PostId == p.Id && s.UserId == currentUserId)
                 })
                 .ToListAsync();
 
@@ -513,7 +541,8 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
     public async Task<Result> ToggleLikeAsync(Guid postId)
     {
         var userId = currentUser.UserId;
-        await cache.RemoveAsync($"post:detail:{postId}:{userId}"); // xóa cache chi tiết bài viết để cập nhật trạng thái like mới
+        await cache.BumpScopeVersionAsync($"post:detail:rev:{postId}");
+        await cache.BumpScopeVersionAsync($"posts:feed:scope:{userId}");
         // 1. Kiểm tra xem bài post có tồn tại không
         var existingPost = await context.Posts.AnyAsync(p => p.Id == postId);
         if (!existingPost)
@@ -539,8 +568,16 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
             existingLike.IsDeleted = !existingLike.IsDeleted; // toggle
             context.Likes.Update(existingLike);
         }
-        var saved = await context.SaveChangesAsync() > 0;
-        return saved ? Result.Success() : Result.Failure(new Error(ErrorCodes.Failure, "Failed to toggle like"));
+        try
+        {
+            await context.SaveChangesAsync();
+            return Result.Success();
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "Toggle like failed for post {PostId} user {UserId}", postId, userId);
+            return Result.Failure(new Error(ErrorCodes.Failure, "Không cập nhật được trạng thái thích."));
+        }
     }
 }
 

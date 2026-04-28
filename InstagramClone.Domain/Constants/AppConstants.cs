@@ -8,6 +8,6 @@ namespace InstagramClone.Domain.Constants;
 
 public static class AppConstants
 {
-    // Bắt đầu bằng dấu / để trỏ từ thư mục gốc (wwwroot)
-    public const string DefaultAvatarUrl = "/images/default-avatar.webp";
+    // Đường dẫn tĩnh dưới wwwroot (UseStaticFiles). File đặt tại wwwroot/media/avatars/default-avatar.png
+    public const string DefaultAvatarUrl = "/media/avatars/default-avatar.png";
 }
