@@ -11,9 +11,12 @@ using InstagramClone.Domain.Enums;
 using System.Text.RegularExpressions;
 using InstagramClone.Application.Interfaces.Caching;
 using Serilog;
+using AutoMapper;
+using AutoMapper.QueryableExtensions;
+using InstagramClone.Application.Interfaces;
 
 namespace InstagramClone.Application.Services;
-public class PostServices(IApplicationDbContext context, ICurrentUserService currentUser, IStorageServices storageServices, ICacheService cache) : IPostServices
+public class PostServices(IUnitOfWork unitOfWork, IMapper mapper, ICurrentUserService currentUser, IStorageServices storageServices, ICacheService cache) : IPostServices
 {
     public async Task<Result<string>> CreatePostAsync(CreatePostDto createPostDto)
     {
@@ -52,13 +55,13 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
             }
 
             // 4. save post to database
-            context.Posts.Add(newPost);
+            unitOfWork.Posts.Add(newPost);
 
             var tags = ExtractHashtags(createPostDto.Content ?? string.Empty);
 
             if(tags.Any())
             {
-                var exitstingTags = await context.Hashtags
+                var exitstingTags = await unitOfWork.Hashtags.Query()
                     .Where(t => tags.Contains(t.Name))
                     .ToListAsync();
                 
@@ -69,10 +72,10 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
                     if(hashtagEntity == null)
                     {
                         hashtagEntity = new Hashtag { Name = tag };
-                        context.Hashtags.Add(hashtagEntity);
+                        unitOfWork.Hashtags.Add(hashtagEntity);
                     }
 
-                    context.PostHashtags.Add(new PostHashtag
+                    unitOfWork.PostHashtags.Add(new PostHashtag
                     {
                         Hashtag = hashtagEntity,
                         Post = newPost
@@ -80,7 +83,7 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
                 }
             }
 
-            var saved = await context.SaveChangesAsync() > 0;
+            var saved = await unitOfWork.SaveChangesAsync() > 0;
             if(!saved)                    
             {
                 Log.Error("User {UserId} failed to save post {Content} to database", userId, createPostDto.Content);
@@ -114,7 +117,7 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
             return Result.Failure(new Error("Unauthorized", "User is not authenticated"));
 
         //1. find post end medias 
-        var post = await context.Posts.Include(p => p.MediaPorts).FirstOrDefaultAsync(p => p.Id == postId);
+        var post = await unitOfWork.Posts.Query().Include(p => p.MediaPorts).FirstOrDefaultAsync(p => p.Id == postId);
 
         if(post == null)
             return Result.NotFound(new Error(ErrorCodes.NotFound, "Post does not exist"));
@@ -131,18 +134,18 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
             media.IsDeleted = true; // soft delete media
         }
 
-        context.Posts.Update(post);
+        unitOfWork.Posts.Update(post);
 
         //4. save changes to database
         try
         {
             // Tách riêng ra để kiểm tra
-            var rowsAffected = await context.SaveChangesAsync();
+            var rowsAffected = await unitOfWork.SaveChangesAsync();
 
             if (rowsAffected == 0)
             {
                 Log.Warning("User {UserId} tried to delete post {PostId} but no rows were affected", userId, postId);
-                return Result.Failure(new Error(ErrorCodes.Failure, "Lệnh SaveChanges chạy nhưng không có dòng nào bị ảnh hưởng trong Database!"));
+                return Result.Failure(new Error(ErrorCodes.Failure, "SaveChanges executed but no rows were affected in the Database!"));
             }
 
             Log.Information("User {UserId} deleted post {PostId}", userId, postId);
@@ -155,7 +158,7 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
         catch (Exception ex)
         {
             Log.Error(ex, "Error deleting post {PostId} for user {UserId}", postId, userId);
-            return Result.Failure(new Error(ErrorCodes.Failure, "Đã xảy ra lỗi khi xóa bài viết, vui lòng thử lại sau."));
+            return Result.Failure(new Error(ErrorCodes.Failure, "An error occurred while deleting the post, please try again later."));
         }
     }
 
@@ -167,8 +170,20 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
 
         var cachedFeed = await cache.GetOrCreateAsync<CursorPagedResponse<ResponsePostDto>>(cacheKey, factory: async () =>
         {
-            // 1. khởi tạo truy vấn cơ bản, chưa query dữ liệu
-            var query = context.Posts.AsNoTracking();
+            var userId = currentUser.UserId;
+
+            // Lấy danh sách ID những người mình đang Follow (đã Accepted)
+            var followingIds = await unitOfWork.Follows.Query()
+                .Where(f => f.ObserverId == userId && f.Status == FollowStatus.Accepted)
+                .Select(f => f.TargetId)
+                .ToListAsync();
+
+            // Thêm userId của chính mình để hiển thị cả bài viết của bản thân trong feed
+            followingIds.Add(userId);
+
+            // 1. khởi tạo truy vấn cơ bản, chỉ lấy bài của người mình follow và của mình
+            var query = unitOfWork.Posts.Query()
+                .Where(p => followingIds.Contains(p.UserId));
 
             // 2. áp dụng phân trang cursor-based nếu có cursor
             // Nếu cursor có giá trị, chỉ lấy những bài post được tạo trước thời điểm cursor
@@ -182,22 +197,7 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
             var posts = await query
                 .OrderByDescending(p => p.CreatedAt) // sắp xếp theo createdAt giảm dần để lấy bài mới nhất trước
                 .Take(cursorPagination.PageSize + 1)
-                .Select(p => new ResponsePostDto
-                {
-                    Id = p.Id,
-                    Content = p.Content,
-                    CreatedAt = p.CreatedAt,
-                    AuthorId = p.UserId,
-                    AuthorName = p.User.FullName,
-                    AuthorAvatar = p.User.AvatarUrl,
-                    MediaUrls = p.MediaPorts.Where(m => !m.IsDeleted).Select(m => m.MediaUrl).ToList(),
-
-                    LikeCount = p.Likes.Count(),
-                    IsLiked = p.Likes.Any(l => l.UserId == currentUser.UserId && !l.IsDeleted), // kiểm tra xem user hiện tại đã like bài post chưa
-                    IsSaved = context.SavedPosts.Any(s => s.PostId == p.Id && s.UserId == currentUser.UserId),
-
-                    CommentCount = p.Comments.Count()
-                })
+                .ProjectTo<ResponsePostDto>(mapper.ConfigurationProvider, new { currentUserId = currentUser.UserId })
                 .ToListAsync();
 
             // 4. xác định xem có trang tiếp theo hay không
@@ -228,18 +228,18 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
         var userId = currentUser.UserId;
         await cache.BumpScopeVersionAsync($"post:detail:rev:{postId}");
         // 1. Chỉ chọc xuống DB 1 lần duy nhất để lấy bài viết
-        var postToUpdate = await context.Posts.FirstOrDefaultAsync(p => p.Id == postId);
+        var postToUpdate = await unitOfWork.Posts.Query().FirstOrDefaultAsync(p => p.Id == postId);
 
         // 2. Chặn lỗi 1: Bài viết không tồn tại (Bị xóa hoặc truyền sai ID)
         if (postToUpdate == null)
         {
-            return Result<bool>.Failure(new Error(ErrorCodes.NotFound, "Bài viết không tồn tại."));
+            return Result<bool>.Failure(new Error(ErrorCodes.NotFound, "Post does not exist."));
         }
 
         // 3. Chặn lỗi 2 (Bảo mật): Bài viết tồn tại nhưng KHÔNG thuộc về user đang đăng nhập
         if (postToUpdate.UserId != userId)
         {
-            return Result<bool>.Failure(new Error(ErrorCodes.Forbid, "Bạn không có quyền chỉnh sửa bài viết này."));
+            return Result<bool>.Failure(new Error(ErrorCodes.Forbid, "You do not have permission to edit this post."));
         }
 
         // 4. Thực hiện cập nhật dữ liệu (Không cần dùng context.Posts.Update)
@@ -247,7 +247,7 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
 
         try
         {
-            var rowsAffected = await context.SaveChangesAsync();
+            var rowsAffected = await unitOfWork.SaveChangesAsync();
 
             // LƯU Ý UX QUAN TRỌNG: 
             // Nếu user bấm "Sửa" nhưng KHÔNG thay đổi chữ nào, EF Core sẽ phát hiện ra và không chạy lệnh SQL.
@@ -261,7 +261,7 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
         catch (Exception ex)
         {
             Console.WriteLine($"[Error in UpdatePostAsync] {ex}");
-            return Result<bool>.Failure(new Error(ErrorCodes.Failure, "Đã xảy ra lỗi khi cập nhật bài viết, vui lòng thử lại sau."));
+            return Result<bool>.Failure(new Error(ErrorCodes.Failure, "An error occurred while updating the post, please try again later."));
         }
     }
     public async Task<Result<ResponsePostDto>> GetPostByIdAsync(Guid postId)
@@ -272,23 +272,10 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
 
         var cachedPost = await cache.GetOrCreateAsync<ResponsePostDto?>(cacheKey, factory: async () => 
         {
-            var post = await context.Posts
-            .AsNoTracking()
+            var post = await unitOfWork.Posts
+            .Query()
             .Where(p => p.Id == postId)
-            .Select(p => new ResponsePostDto
-            {
-                Id = p.Id,
-                Content = p.Content,
-                CreatedAt = p.CreatedAt,
-                AuthorId = p.UserId,
-                AuthorName = p.User.FullName,
-                AuthorAvatar = p.User.AvatarUrl,
-                MediaUrls = p.MediaPorts.Select(m => m.MediaUrl).ToList(),
-                LikeCount = p.Likes.Count(),
-                IsLiked = p.Likes.Any(l => l.UserId == userId && !l.IsDeleted), // kiểm tra xem user hiện tại đã like bài post chưa
-                IsSaved = context.SavedPosts.Any(s => s.PostId == p.Id && s.UserId == userId),
-                CommentCount = p.Comments.Count()
-            })
+            .ProjectTo<ResponsePostDto>(mapper.ConfigurationProvider, new { currentUserId = userId })
             .FirstOrDefaultAsync();
             if (post == null)
                 return null;
@@ -296,7 +283,7 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
             return post;
         });
         if(cachedPost == null)
-            return Result<ResponsePostDto>.NotFound(new Error(ErrorCodes.NotFound, "Bài viết không tồn tại"));
+            return Result<ResponsePostDto>.NotFound(new Error(ErrorCodes.NotFound, "Post does not exist"));
 
         return Result<ResponsePostDto>.Success(cachedPost);
     }
@@ -345,11 +332,11 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
     {
         var currentUserId = currentUser.UserId;
 
-        var postExists = await context.Posts.AnyAsync(p => p.Id == postId);
+        var postExists = await unitOfWork.Posts.AnyAsync(p => p.Id == postId);
         if(!postExists)
-            return Result.NotFound(new Error(ErrorCodes.NotFound, "Bài viết không tồn tại"));
+            return Result.NotFound(new Error(ErrorCodes.NotFound, "Post does not exist"));
 
-        var existingSave = await context.SavedPosts
+        var existingSave = await unitOfWork.SavedPosts.Query()
             .IgnoreQueryFilters()
             .FirstOrDefaultAsync(s => s.UserId == currentUserId && s.PostId == postId);
 
@@ -360,16 +347,16 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
                 UserId = currentUserId,
                 PostId = postId
             };
-            context.SavedPosts.Add(newSave);
+            unitOfWork.SavedPosts.Add(newSave);
         }
         else
         {
             existingSave.IsDeleted = !existingSave.IsDeleted; // toggle trạng thái saved/unsaved
-            context.SavedPosts.Update(existingSave);
+            unitOfWork.SavedPosts.Update(existingSave);
         }
         try
         {
-            await context.SaveChangesAsync();
+            await unitOfWork.SaveChangesAsync();
             await cache.BumpScopeVersionAsync($"posts:feed:scope:{currentUserId}");
             await cache.BumpScopeVersionAsync($"posts:saved:scope:{currentUserId}");
             await cache.BumpScopeVersionAsync($"post:detail:rev:{postId}");
@@ -378,7 +365,7 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
         catch (Exception ex)
         {
             Log.Error(ex, "Toggle save failed for post {PostId} user {UserId}", postId, currentUserId);
-            return Result.Failure(new Error(ErrorCodes.Failure, "Không cập nhật được trạng thái lưu bài."));
+            return Result.Failure(new Error(ErrorCodes.Failure, "Failed to update post save status."));
         }
     }
     
@@ -389,8 +376,8 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
         var cacheKey = $"posts:saved:{userId}:{savedScope}:{cursorPagination.PageSize}:{cursorPagination.Cursor}";
         var cachedSavedPosts = await cache.GetOrCreateAsync<CursorPagedResponse<ResponsePostDto>>(cacheKey, factory: async () =>
         {
-            var query = context.SavedPosts
-           .AsNoTracking()
+            var query = unitOfWork.SavedPosts
+           .Query()
            .Where(s => s.UserId == userId && !s.IsDeleted)
            .Select(s => s.Post);
             if (cursorPagination.Cursor.HasValue)
@@ -400,20 +387,7 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
             var savedPosts = await query
                 .OrderByDescending(p => p.CreatedAt)
                 .Take(cursorPagination.PageSize + 1)
-                .Select(p => new ResponsePostDto
-                {
-                    Id = p.Id,
-                    Content = p.Content,
-                    CreatedAt = p.CreatedAt,
-                    AuthorId = p.UserId,
-                    AuthorName = p.User.FullName,
-                    AuthorAvatar = p.User.AvatarUrl,
-                    MediaUrls = p.MediaPorts.Select(m => m.MediaUrl).ToList(),
-                    LikeCount = p.Likes.Count(),
-                    IsLiked = p.Likes.Any(l => l.UserId == userId && !l.IsDeleted), // kiểm tra xem user hiện tại đã like bài post chưa
-                    IsSaved = true,
-                    CommentCount = p.Comments.Count()
-                })
+                .ProjectTo<ResponsePostDto>(mapper.ConfigurationProvider, new { currentUserId = userId })
                 .ToListAsync();
 
             var hasNextPage = savedPosts.Count > cursorPagination.PageSize; // true nếu có nhiều hơn pageSize bản ghi, tức là còn bản ghi cho trang tiếp theo
@@ -471,7 +445,7 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
             // 1. CHUẨN HÓA NGAY TỪ ĐẦU (Cực kỳ quan trọng)
             content = content.Trim().ToLower();
 
-            var query = context.Posts.AsNoTracking();
+            var query = unitOfWork.Posts.Query();
 
             // 2. PHÂN LOẠI TÌM KIẾM
             if (content.StartsWith("#"))
@@ -483,9 +457,6 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
             {
                 // Nhánh tìm theo Nội dung Text
                 query = query.Where(p => EF.Functions.Like(p.Content, $"%{content}%"));
-
-                //dùng sql server full-text search để tìm kiếm chính xác hơn, nhưng cần cấu hình full-text index trên cột Content của bảng Posts trong database
-                //query = query.Where(p => EF.Functions.Contains(p.Content, content));
             }
 
             // 3. Phân trang bằng Cursor
@@ -498,20 +469,7 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
             var posts = await query
                 .OrderByDescending(p => p.CreatedAt)
                 .Take(request.PageSize + 1)
-                .Select(p => new ResponsePostDto
-                {
-                    Id = p.Id,
-                    Content = p.Content,
-                    CreatedAt = p.CreatedAt,
-                    AuthorId = p.UserId,
-                    AuthorName = p.User.FullName,
-                    AuthorAvatar = p.User.AvatarUrl,
-                    MediaUrls = p.MediaPorts.Select(m => m.MediaUrl).ToList(),
-                    LikeCount = p.Likes.Count(),
-                    CommentCount = p.Comments.Count(),
-                    IsLiked = !string.IsNullOrEmpty(currentUserId) && p.Likes.Any(l => l.UserId == currentUserId),
-                    IsSaved = !string.IsNullOrEmpty(currentUserId) && context.SavedPosts.Any(s => s.PostId == p.Id && s.UserId == currentUserId)
-                })
+                .ProjectTo<ResponsePostDto>(mapper.ConfigurationProvider, new { currentUserId = currentUserId })
                 .ToListAsync();
 
             var hasNextPage = posts.Count > request.PageSize;
@@ -544,12 +502,12 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
         await cache.BumpScopeVersionAsync($"post:detail:rev:{postId}");
         await cache.BumpScopeVersionAsync($"posts:feed:scope:{userId}");
         // 1. Kiểm tra xem bài post có tồn tại không
-        var existingPost = await context.Posts.AnyAsync(p => p.Id == postId);
+        var existingPost = await unitOfWork.Posts.AnyAsync(p => p.Id == postId);
         if (!existingPost)
             return Result.NotFound(new Error(ErrorCodes.NotFound, "Post does not exist"));
 
         // 2. Kiểm tra xem user đã like bài post chưa
-        var existingLike = await context.Likes
+        var existingLike = await unitOfWork.Likes.Query()
             .IgnoreQueryFilters()
             .FirstOrDefaultAsync(l => l.PostId == postId && l.UserId == userId);
         // IgnoreQueryFilters() để bỏ qua global filter IsDeleted, vì có thể user đã like rồi nhưng sau đó bị soft delete, nên vẫn phải kiểm tra để toggle lại
@@ -561,22 +519,22 @@ public class PostServices(IApplicationDbContext context, ICurrentUserService cur
                 PostId = postId,
                 UserId = userId
             };
-            context.Likes.Add(newLike);
+            unitOfWork.Likes.Add(newLike);
         }
         else
         {
             existingLike.IsDeleted = !existingLike.IsDeleted; // toggle
-            context.Likes.Update(existingLike);
+            unitOfWork.Likes.Update(existingLike);
         }
         try
         {
-            await context.SaveChangesAsync();
+            await unitOfWork.SaveChangesAsync();
             return Result.Success();
         }
         catch (Exception ex)
         {
             Log.Error(ex, "Toggle like failed for post {PostId} user {UserId}", postId, userId);
-            return Result.Failure(new Error(ErrorCodes.Failure, "Không cập nhật được trạng thái thích."));
+            return Result.Failure(new Error(ErrorCodes.Failure, "Failed to update like status."));
         }
     }
 }

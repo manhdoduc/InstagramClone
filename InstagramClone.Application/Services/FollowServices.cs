@@ -1,4 +1,5 @@
 using InstagramClone.Application.DTOs.InfoUser;
+using InstagramClone.Application.DTOs.Common;
 using InstagramClone.Application.Interfaces.Services;
 using InstagramClone.Common.Constants;
 using InstagramClone.Common.Results;
@@ -8,9 +9,14 @@ using InstagramClone.Application.Interfaces.Data;
 using Microsoft.EntityFrameworkCore;
 using InstagramClone.Application.Interfaces.Caching;
 
+using AutoMapper;
+using AutoMapper.QueryableExtensions;
+using InstagramClone.Application.Interfaces;
+using InstagramClone.Application.DTOs.post;
+
 namespace InstagramClone.Application.Services
 {
-    public class FollowServices(IApplicationDbContext context, ICurrentUserService currentUser, ICacheService cache) : IFollowService
+    public class FollowServices(IUnitOfWork unitOfWork, ICurrentUserService currentUser, ICacheService cache, IMapper mapper) : IFollowService
     {
         public async Task<Result<string>> SendFollowRequestAsync(string targetId)
         {
@@ -22,11 +28,11 @@ namespace InstagramClone.Application.Services
             if (observerId == targetId)
                 return Result<string>.BadRequest(new Error(ErrorCodes.Conflict, "You cannot follow yourself."));
 
-            var targetUser = await context.Users.FirstOrDefaultAsync(u => u.Id == targetId);
+            var targetUser = await unitOfWork.Users.Query().FirstOrDefaultAsync(u => u.Id == targetId);
             if (targetUser == null)
                 return Result<string>.NotFound(new Error(ErrorCodes.NotFound, "The user you are trying to follow does not exist."));
 
-            var existingFollow = await context.Follows
+            var existingFollow = await unitOfWork.Follows.Query()
                 .IgnoreQueryFilters()
                 .FirstOrDefaultAsync(f => f.ObserverId == observerId && f.TargetId == targetId);
 
@@ -36,7 +42,7 @@ namespace InstagramClone.Application.Services
 
             if (existingFollow == null)
             {
-                context.Follows.Add(new Follow
+                unitOfWork.Follows.Add(new Follow
                 {
                     ObserverId = observerId,
                     TargetId = targetId,
@@ -51,17 +57,17 @@ namespace InstagramClone.Application.Services
                 {
                     existingFollow.IsDeleted = false;
                     existingFollow.Status = initialStatus;
-                    context.Follows.Update(existingFollow);
+                    unitOfWork.Follows.Update(existingFollow);
                     message = targetUser.IsPrivateAccount ? FollowCodes.FollowRequestSent : FollowCodes.Followed;
                 }
                 else
                 {
                     existingFollow.IsDeleted = true;
-                    context.Follows.Update(existingFollow);
+                    unitOfWork.Follows.Update(existingFollow);
                     message = FollowCodes.CancelledFollowRequest;
                 }
             }
-            var saved = await context.SaveChangesAsync() > 0;
+            var saved = await unitOfWork.SaveChangesAsync() > 0;
             if (saved)
             {
                 // Profile cache: isFollowing/isRequested + follower/following counts depend on follow relation
@@ -80,14 +86,14 @@ namespace InstagramClone.Application.Services
             if (string.IsNullOrEmpty(userId))
                 return Result<bool>.BadRequest(new Error(ErrorCodes.Failure, "User must be authenticated to accept follow requests."));
 
-            var request = await context.Follows.FirstOrDefaultAsync(f => f.ObserverId == observerId && f.TargetId == userId && f.Status == FollowStatus.Pending);
+            var request = await unitOfWork.Follows.Query().FirstOrDefaultAsync(f => f.ObserverId == observerId && f.TargetId == userId && f.Status == FollowStatus.Pending);
             if (request == null)
                 return Result<bool>.NotFound(new Error(ErrorCodes.NotFound, "Follow request not found."));
 
             request.Status = FollowStatus.Accepted;
-            context.Follows.Update(request);
+            unitOfWork.Follows.Update(request);
 
-            var saved = await context.SaveChangesAsync() > 0;
+            var saved = await unitOfWork.SaveChangesAsync() > 0;
             if (saved)
             {
                 await cache.BumpScopeVersionAsync($"user:profile:rev:{userId}");
@@ -105,14 +111,14 @@ namespace InstagramClone.Application.Services
             if (string.IsNullOrEmpty(userId))
                 return Result<bool>.BadRequest(new Error(ErrorCodes.Failure, "User must be authenticated to decline follow requests."));
 
-            var request = await context.Follows.FirstOrDefaultAsync(f => f.ObserverId == observerId && f.TargetId == userId && f.Status == FollowStatus.Pending);
+            var request = await unitOfWork.Follows.Query().FirstOrDefaultAsync(f => f.ObserverId == observerId && f.TargetId == userId && f.Status == FollowStatus.Pending);
             if (request == null)
                 return Result<bool>.NotFound(new Error(ErrorCodes.NotFound, "Follow request not found."));
 
             request.IsDeleted = true;
-            context.Follows.Update(request);
+            unitOfWork.Follows.Update(request);
 
-            var saved = await context.SaveChangesAsync() > 0;
+            var saved = await unitOfWork.SaveChangesAsync() > 0;
             if (saved)
             {
                 await cache.BumpScopeVersionAsync($"user:profile:rev:{userId}");
@@ -121,57 +127,109 @@ namespace InstagramClone.Application.Services
             return saved ? Result<bool>.Success(true) : Result<bool>.Failure(new Error(ErrorCodes.Failure, "Failed to decline follow request."));
         }
 
-        public async Task<Result<List<UserSummaryDto>>> GetFollowerAsync(string targetUserId)
+        public async Task<Result<CursorPagedResponse<UserSummaryDto>>> GetFollowerAsync(string targetUserId, CursorPaginationRequest request)
         {
             var currentUserId = currentUser.UserId;
-            var cacheKey = $"followers:{targetUserId}:{currentUserId}";
-            var cachedFollowers = await cache.GetOrCreateAsync<List<UserSummaryDto>>(cacheKey, factory: async () =>
+            var cacheKey = $"followers:{targetUserId}:{currentUserId}:{request.PageSize}:{request.Cursor}";
+            var cachedFollowers = await cache.GetOrCreateAsync<CursorPagedResponse<UserSummaryDto>>(cacheKey, factory: async () =>
             {
-                var follower = await context.Follows
-                .AsNoTracking()
-                .Where(f => f.TargetId == targetUserId && f.Status == FollowStatus.Accepted)
-                .Select(f => new UserSummaryDto
+                var query = unitOfWork.Follows.Query()
+                    .Where(f => f.TargetId == targetUserId && f.Status == FollowStatus.Accepted);
+
+                if (request.Cursor.HasValue)
                 {
-                    UserId = f.Observer.Id,
-                    UserName = f.Observer.UserName!,
-                    FullName = f.Observer.FullName,
-                    AvatarUrl = f.Observer.AvatarUrl!,
-                    IsFollowing = !string.IsNullOrEmpty(currentUserId)
-                        && context.Follows.Any(myFollow => myFollow.ObserverId == currentUserId &&
-                                                myFollow.TargetId == f.ObserverId &&
-                                                myFollow.Status == FollowStatus.Accepted)
-                })
-                .ToListAsync();
-                return follower;
+                    query = query.Where(f => f.CreatedAt < request.Cursor.Value);
+                }
+
+                var follows = await query
+                    .OrderByDescending(f => f.CreatedAt)
+                    .Take(request.PageSize + 1)
+                    .Select(f => new 
+                    {
+                        CreatedAt = f.CreatedAt,
+                        User = f.Observer,
+                        IsFollowing = f.Observer.Followers.Any(follower => follower.ObserverId == currentUserId && follower.Status == FollowStatus.Accepted)
+                    })
+                    .ToListAsync();
+
+                var hasNextPage = follows.Count > request.PageSize;
+                DateTime? nextCursor = null;
+
+                if (hasNextPage)
+                {
+                    follows.RemoveAt(request.PageSize);
+                    nextCursor = follows.Last().CreatedAt;
+                }
+
+                var users = follows.Select(f => new UserSummaryDto
+                {
+                    UserId = f.User.Id,
+                    FullName = f.User.FullName,
+                    AvatarUrl = f.User.AvatarUrl ?? "",
+                    IsFollowing = f.IsFollowing
+                }).ToList();
+
+                return new CursorPagedResponse<UserSummaryDto>
+                {
+                    Items = users,
+                    HasNextPage = hasNextPage,
+                    NextCursor = nextCursor
+                };
             });
            
-            return Result<List<UserSummaryDto>>.Success(cachedFollowers);
+            return Result<CursorPagedResponse<UserSummaryDto>>.Success(cachedFollowers);
         }
 
-        public async Task<Result<List<UserSummaryDto>>> GetFollowingAsync(string targetUserId)
+        public async Task<Result<CursorPagedResponse<UserSummaryDto>>> GetFollowingAsync(string targetUserId, CursorPaginationRequest request)
         {
             var currentUserId = currentUser.UserId;
-            var cacheKey = $"following:{targetUserId}:{currentUserId}";
-            var cachedFollowing = await cache.GetOrCreateAsync<List<UserSummaryDto>>(cacheKey, factory: async () =>
+            var cacheKey = $"following:{targetUserId}:{currentUserId}:{request.PageSize}:{request.Cursor}";
+            var cachedFollowing = await cache.GetOrCreateAsync<CursorPagedResponse<UserSummaryDto>>(cacheKey, factory: async () =>
             {
-                var following = await context.Follows
-                .AsNoTracking()
-                .Where(f => f.ObserverId == targetUserId && f.Status == FollowStatus.Accepted)
-                .Select(f => new UserSummaryDto
+                var query = unitOfWork.Follows.Query()
+                    .Where(f => f.ObserverId == targetUserId && f.Status == FollowStatus.Accepted);
+
+                if (request.Cursor.HasValue)
                 {
-                    UserId = f.Target.Id,
-                    UserName = f.Target.UserName!,
-                    FullName = f.Target.FullName,
-                    AvatarUrl = f.Target.AvatarUrl!,
-                    IsFollowing = !string.IsNullOrEmpty(currentUserId)
-                        && context.Follows.Any(myFollow => myFollow.ObserverId == currentUserId &&
-                                                myFollow.TargetId == f.Target.Id &&
-                                                myFollow.Status == FollowStatus.Accepted)
-                })
-                .ToListAsync();
-                return following;
+                    query = query.Where(f => f.CreatedAt < request.Cursor.Value);
+                }
+
+                var follows = await query
+                    .OrderByDescending(f => f.CreatedAt)
+                    .Take(request.PageSize + 1)
+                    .Select(f => new 
+                    {
+                        CreatedAt = f.CreatedAt,
+                        User = f.Target,
+                        IsFollowing = f.Target.Followers.Any(follower => follower.ObserverId == currentUserId && follower.Status == FollowStatus.Accepted)
+                    })
+                    .ToListAsync();
+
+                var hasNextPage = follows.Count > request.PageSize;
+                DateTime? nextCursor = null;
+
+                if (hasNextPage)
+                {
+                    follows.RemoveAt(request.PageSize);
+                    nextCursor = follows.Last().CreatedAt;
+                }
+
+                var users = follows.Select(f => new UserSummaryDto
+                {
+                    UserId = f.User.Id,
+                    FullName = f.User.FullName,
+                    AvatarUrl = f.User.AvatarUrl ?? "",
+                    IsFollowing = f.IsFollowing
+                }).ToList();
+
+                return new CursorPagedResponse<UserSummaryDto>
+                {
+                    Items = users,
+                    HasNextPage = hasNextPage,
+                    NextCursor = nextCursor
+                };
             });
-            return Result<List<UserSummaryDto>>.Success(cachedFollowing);
+            return Result<CursorPagedResponse<UserSummaryDto>>.Success(cachedFollowing);
         }
     }
 }

@@ -11,10 +11,14 @@ using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using InstagramClone.Application.Interfaces.Caching;
 
+using AutoMapper;
+using AutoMapper.QueryableExtensions;
+using InstagramClone.Application.Interfaces;
+
 namespace InstagramClone.Application.Services;
 public class UserServices(IStorageServices storageServices, UserManager<AppUser> userManager, 
-                            ICurrentUserService currentUser, IApplicationDbContext context,
-                            ICacheService cache) : IUserServices
+                            ICurrentUserService currentUser, IUnitOfWork unitOfWork,
+                            ICacheService cache, IMapper mapper) : IUserServices
 {
     public async Task<Result<string>> UploadAvatarAsync(IFormFile file)
     {
@@ -39,7 +43,7 @@ public class UserServices(IStorageServices storageServices, UserManager<AppUser>
 
         // 3. Cập nhật link mới vào DB
         user.AvatarUrl = avatarUrl;
-        var updateResult = await userManager.UpdateAsync(user);
+        var updateResult = await userManager.ExecuteUpdateAsync(user);
 
         // 4. Nếu DB lỗi -> Xóa file MỚI (Rollback)
         if (!updateResult.Succeeded)
@@ -169,29 +173,14 @@ public class UserServices(IStorageServices storageServices, UserManager<AppUser>
             factory: async () =>
             {
                 // TÌM USER TRƯỚC
-                var userExists = await context.Users.AnyAsync(u => u.Id == targetUserId);
+                var userExists = await unitOfWork.Users.AnyAsync(u => u.Id == targetUserId);
                 if (!userExists) return null;
 
                 bool myAccount = userId == targetUserId;
 
-                var profile = await context.Users
-                    .AsNoTracking()
+                var profile = await unitOfWork.Users.Query()
                     .Where(u => u.Id == targetUserId)
-                    .Select(u => new UserProfileResponseDto
-                    {
-                        Id = u.Id,
-                        FullName = u.FullName,
-                        AvatarUrl = u.AvatarUrl ?? "",
-                        Bio = u.Bio,
-                        MyAccount = myAccount,
-                        IsPrivateAccount = u.IsPrivateAccount,
-                        PostCount = context.Posts.Count(p => p.UserId == targetUserId),
-                        FollowerCount = u.Followers.Count(f => f.Status == FollowStatus.Accepted),
-                        FollowingCount = u.Followings.Count(f => f.Status == FollowStatus.Accepted),
-                        // Quan trọng: Phải check ObserverId == userId (người đang xem)
-                        IsFollowing = !string.IsNullOrEmpty(userId) && u.Followers.Any(f => f.ObserverId == userId && f.Status == FollowStatus.Accepted),
-                        IsRequested = !string.IsNullOrEmpty(userId) && u.Followers.Any(f => f.ObserverId == userId && f.Status == FollowStatus.Pending),
-                    })
+                    .ProjectTo<UserProfileResponseDto>(mapper.ConfigurationProvider, new { currentUserId = userId, targetUserId = targetUserId })
                     .FirstOrDefaultAsync();
 
                 if (profile == null) return null;
@@ -201,18 +190,11 @@ public class UserServices(IStorageServices storageServices, UserManager<AppUser>
 
                 if (canViewPosts)
                 {
-                    profile.RecentPosts = await context.Posts
-                        .AsNoTracking()
+                    profile.RecentPosts = await unitOfWork.Posts.Query()
                         .Where(p => p.UserId == targetUserId)
                         .OrderByDescending(p => p.CreatedAt)
                         .Take(12)
-                        .Select(p => new PostGridItemDto
-                        {
-                            Id = p.Id,
-                            ThumbnailUrl = p.MediaPorts.OrderBy(m => m.Id).Select(m => m.MediaUrl).FirstOrDefault() ?? "",
-                            LikeCount = p.Likes.Count(),
-                            CommentCount = p.Comments.Count()
-                        })
+                        .ProjectTo<PostGridItemDto>(mapper.ConfigurationProvider)
                         .ToListAsync();
                 }
 
@@ -223,7 +205,7 @@ public class UserServices(IStorageServices storageServices, UserManager<AppUser>
         // 2. KIỂM TRA KẾT QUẢ SAU KHI LẤY TỪ CACHE
         if (cachedProfile == null)
         {
-            return Result<UserProfileResponseDto>.Failure(new Error("NotFound", "Người dùng không tồn tại."));
+            return Result<UserProfileResponseDto>.Failure(new Error("NotFound", "User does not exist."));
         }
 
         return Result<UserProfileResponseDto>.Success(cachedProfile);
@@ -238,7 +220,7 @@ public class UserServices(IStorageServices storageServices, UserManager<AppUser>
 
         searchTerm = searchTerm.Trim().ToLower();
 
-        var query = context.Users.AsNoTracking().AsQueryable();
+        var query = unitOfWork.Users.Query();
 
         if (searchTerm.StartsWith("@"))
         {
@@ -251,14 +233,7 @@ public class UserServices(IStorageServices storageServices, UserManager<AppUser>
         }
         var user = await query
             .Take(15)
-            .Select(u => new UserSummaryDto
-            {
-                UserId = u.Id,
-                UserName = u.UserName!,
-                FullName = u.FullName,
-                AvatarUrl = u.AvatarUrl ?? "",
-                IsFollowing = !string.IsNullOrEmpty(userId) && context.Follows.Any(f => f.ObserverId == userId && f.TargetId == u.Id && f.Status == FollowStatus.Accepted)
-            })
+            .ProjectTo<UserSummaryDto>(mapper.ConfigurationProvider, new { currentUserId = userId })
             .ToListAsync();
 
         return Result<List<UserSummaryDto>>.Success(user);

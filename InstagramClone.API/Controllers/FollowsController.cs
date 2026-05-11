@@ -1,7 +1,9 @@
-﻿using InstagramClone.Application.DTOs.InfoUser;
+using InstagramClone.Application.DTOs.InfoUser;
 using InstagramClone.Application.Interfaces.Services;
+using InstagramClone.Application.DTOs.Common;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using InstagramClone.Application.DTOs.post;
 
 namespace InstagramClone.API.Controllers
 {
@@ -38,16 +40,16 @@ namespace InstagramClone.API.Controllers
 
         //
         [HttpGet("{targetId}/followers")]
-        public async Task<ActionResult<List<UserSummaryDto>>> GetFollowers(string targetId)
+        public async Task<ActionResult<CursorPagedResponse<UserSummaryDto>>> GetFollowers(string targetId, [FromQuery] CursorPaginationRequest request)
         {
-            var result = await followService.GetFollowerAsync(targetId);
+            var result = await followService.GetFollowerAsync(targetId, request);
             return ToActionResult(result);
         }
 
         [HttpGet("{targetId}/following")]
-        public async Task<ActionResult<List<UserSummaryDto>>> GetFollowing(string targetId)
+        public async Task<ActionResult<CursorPagedResponse<UserSummaryDto>>> GetFollowing(string targetId, [FromQuery] CursorPaginationRequest request)
         {
-            var result = await followService.GetFollowingAsync(targetId);
+            var result = await followService.GetFollowingAsync(targetId, request);
             return ToActionResult(result);
         }
     }

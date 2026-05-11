@@ -1,10 +1,12 @@
-﻿using InstagramClone.Application.DTOs.InfoUser;
+using InstagramClone.Application.DTOs.InfoUser;
 using InstagramClone.Common.Results;
+using InstagramClone.Application.DTOs.Common;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using InstagramClone.Application.DTOs.post;
 
 namespace InstagramClone.Application.Interfaces.Services;
 
@@ -19,7 +21,7 @@ public interface IFollowService
     // Người B từ chối yêu cầu của Người A
     Task<Result<bool>> DeclineFollowRequestAsync(string observerId);
 
-    Task<Result<List<UserSummaryDto>>> GetFollowerAsync(string userId);
+    Task<Result<CursorPagedResponse<UserSummaryDto>>> GetFollowerAsync(string userId, CursorPaginationRequest request);
 
-    Task<Result<List<UserSummaryDto>>> GetFollowingAsync(string userId);
+    Task<Result<CursorPagedResponse<UserSummaryDto>>> GetFollowingAsync(string userId, CursorPaginationRequest request);
 }

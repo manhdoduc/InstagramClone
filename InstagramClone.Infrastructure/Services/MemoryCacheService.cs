@@ -4,7 +4,7 @@ using System.Text.Json;
 
 namespace InstagramClone.Application.Services
 {
-    public class RedisCacheService(IDistributedCache cache) : ICacheService
+    public class MemoryCacheService(IDistributedCache cache) : ICacheService
     {
         public async Task<T> GetOrCreateAsync<T>(string key, Func<Task<T>> factory, TimeSpan? expiration = null)
         {

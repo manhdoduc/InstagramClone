@@ -10,12 +10,7 @@ namespace InstagramClone.Application.DTOs.post
 {
     public class CreatePostDto
     {
-        [MaxLength(2200, ErrorMessage = "Caption cannot exceed 2200 characters.")]
         public string? Content { get; set; }
-
-        [Required(ErrorMessage = "At least one file is required.")]
-        [MinLength(1, ErrorMessage = "At least one file is required.")]
-        [MaxLength(10, ErrorMessage = "You can upload a maximum of 10 files.")]
         public List<IFormFile> Files { get; set; } = [];
     }
 }

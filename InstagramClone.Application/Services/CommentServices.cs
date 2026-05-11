@@ -8,15 +8,19 @@ using InstagramClone.Application.Interfaces.Data;
 using Microsoft.EntityFrameworkCore;
 using InstagramClone.Application.Interfaces.Caching;
 
+using AutoMapper;
+using AutoMapper.QueryableExtensions;
+using InstagramClone.Application.Interfaces;
+
 namespace InstagramClone.Application.Services;
-public class CommentServices(IApplicationDbContext context, ICurrentUserService currentUser, ICacheService cache) : ICommentServices
+public class CommentServices(IUnitOfWork unitOfWork, ICurrentUserService currentUser, ICacheService cache, IMapper mapper) : ICommentServices
 {
     public async Task<Result<ResponseCommentDto>> AddCommentAsync(Guid postId, CreateCommentDto commentDto)
     {
         var userId = currentUser.UserId;
         await cache.BumpScopeVersionAsync($"comments:{postId}:version");
 
-        var postExits = await context.Posts.AnyAsync(p => p.Id == postId);
+        var postExits = await unitOfWork.Posts.AnyAsync(p => p.Id == postId);
         if (!postExits)
             return Result<ResponseCommentDto>.Failure(new Error(ErrorCodes.NotFound, "Post not found"));
 
@@ -26,10 +30,10 @@ public class CommentServices(IApplicationDbContext context, ICurrentUserService 
             PostId = postId,
             Content = commentDto.Content
         };
-        context.Comments.Add(comment);
-        await context.SaveChangesAsync();
+        unitOfWork.Comments.Add(comment);
+        await unitOfWork.SaveChangesAsync();
 
-        var user = await context.Users.FirstAsync(u => u.Id == userId);
+        var user = await unitOfWork.Users.Query().FirstAsync(u => u.Id == userId);
 
         return Result<ResponseCommentDto>.Success(new ResponseCommentDto
         {
@@ -52,8 +56,8 @@ public class CommentServices(IApplicationDbContext context, ICurrentUserService 
 
         var cachedPost = await cache.GetOrCreateAsync<CursorPagedResponse<ResponseCommentDto>>(cacheKey, factory: async () =>
         {
-            var query = context.Comments
-            .AsNoTracking()
+            var query = unitOfWork.Comments
+            .Query()
             .Where(c => c.PostId == postId);
 
             if (pagination.Cursor.HasValue)
@@ -62,17 +66,7 @@ public class CommentServices(IApplicationDbContext context, ICurrentUserService 
             var comments = await query
                 .OrderByDescending(c => c.CreatedAt)
                 .Take(pagination.PageSize + 1)
-                .Select(c => new ResponseCommentDto
-                {
-                    Id = c.Id,
-                    Content = c.Content,
-                    CreatedAt = c.CreatedAt,
-                    AuthorId = c.UserId,
-                    AuthorName = c.AppUser.UserName!,
-                    AuthorAvatar = c.AppUser.AvatarUrl,
-                    LikeCount = c.Likes.Count(),
-                    IsLiked = context.CommentLikes.Any(cl => cl.CommentId == c.Id && cl.UserId == userId && !cl.IsDeleted)
-                })
+                .ProjectTo<ResponseCommentDto>(mapper.ConfigurationProvider, new { currentUserId = userId })
                 .ToListAsync();
 
             var hasNextPage = comments.Count > pagination.PageSize;
@@ -103,7 +97,7 @@ public class CommentServices(IApplicationDbContext context, ICurrentUserService 
         if (userId is null)
             return Result<string>.Failure(new Error(ErrorCodes.Forbid, "Unauthorized"));
 
-        var comment = await context.Comments
+        var comment = await unitOfWork.Comments.Query()
             .Include(c => c.Post)
             .FirstOrDefaultAsync(c => c.Id == commentId);
 
@@ -114,11 +108,11 @@ public class CommentServices(IApplicationDbContext context, ICurrentUserService 
             return Result<string>.Failure(new Error(ErrorCodes.Forbid, "You can only delete your own comments or comments on your posts"));
 
         comment.IsDeleted = true;
-        context.Comments.Update(comment);
+        unitOfWork.Comments.Update(comment);
 
         try
         {
-            var saved = await context.SaveChangesAsync() > 0;
+            var saved = await unitOfWork.SaveChangesAsync() > 0;
             if (saved)
                 await cache.BumpScopeVersionAsync($"comments:{comment.PostId}:version");
             return saved
@@ -136,13 +130,13 @@ public class CommentServices(IApplicationDbContext context, ICurrentUserService 
     {
         var userId = currentUser.UserId;
 
-        var commentExits = await context.Comments
+        var commentExits = await unitOfWork.Comments
             .AnyAsync(c => c.Id == commentId);
 
         if (!commentExits)
             return Result<string>.Failure(new Error(ErrorCodes.NotFound, "Comment not found"));
 
-        var existingLike = await context.CommentLikes
+        var existingLike = await unitOfWork.CommentLikes.Query()
             .IgnoreQueryFilters()
             .FirstOrDefaultAsync(l => l.CommentId == commentId && l.UserId == userId);
 
@@ -155,19 +149,19 @@ public class CommentServices(IApplicationDbContext context, ICurrentUserService 
                 CommentId = commentId,
                 UserId = userId
             };
-            context.CommentLikes.Add(like);
+            unitOfWork.CommentLikes.Add(like);
             resultMessage = LikeCodess.Liked;
 
         }
         else
         {
             existingLike.IsDeleted = !existingLike.IsDeleted;
-            context.CommentLikes.Update(existingLike);
+            unitOfWork.CommentLikes.Update(existingLike);
             resultMessage = existingLike.IsDeleted ? LikeCodess.Unlike : LikeCodess.Liked;
         }
-        await context.SaveChangesAsync();
+        await unitOfWork.SaveChangesAsync();
 
-        var postId = await context.Comments.AsNoTracking()
+        var postId = await unitOfWork.Comments.Query()
             .Where(c => c.Id == commentId)
             .Select(c => c.PostId)
             .FirstAsync();

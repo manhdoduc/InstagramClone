@@ -1,4 +1,4 @@
-﻿using InstagramClone.Domain.Common;
+using InstagramClone.Domain.Common;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -23,5 +23,6 @@ namespace InstagramClone.Domain.Entities
         public ICollection<Comment> Comments { get; set; } = [];
 
         public ICollection<PostHashtag> PostHashtags { get; set; } = [];
+        public ICollection<SavedPost> SavedPosts { get; set; } = [];
     }
 }

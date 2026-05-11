@@ -118,12 +118,13 @@ namespace InstagramClone.Application.Services
             return new JwtSecurityTokenHandler().WriteToken(token);
         }
 
-        private async Task<string> GenerateRefreshToken()
+        private Task<string> GenerateRefreshToken()
         {
             var randomNumber = new byte[32];
             using var rng = RandomNumberGenerator.Create();
             rng.GetBytes(randomNumber);
-            return Convert.ToBase64String(randomNumber);
+            var refreshToken = Convert.ToBase64String(randomNumber);
+            return Task.FromResult(refreshToken);
         }
 
         //  Logic xử lý Refresh Token

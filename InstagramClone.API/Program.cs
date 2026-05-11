@@ -1,3 +1,5 @@
+using FluentValidation;
+using FluentValidation.AspNetCore;
 using HealthChecks.UI.Client;
 using InstagramClone.API.Middlewares;
 using InstagramClone.Application.Interfaces.Caching;
@@ -5,6 +7,7 @@ using InstagramClone.Application.Interfaces.Chats;
 using InstagramClone.Application.Interfaces.Data;
 using InstagramClone.Application.Interfaces.Services;
 using InstagramClone.Application.Services;
+using InstagramClone.Application.Validators;
 using InstagramClone.Common.Models.Config;
 using InstagramClone.Domain.Entities;
 using InstagramClone.Infrastructure.Data;
@@ -62,8 +65,9 @@ try
     builder.Services.AddScoped<IFollowService, FollowServices>();
     builder.Services.AddScoped<IChatService, ChatServices>();
     builder.Services.AddScoped<IChatNotificationService, ChatNotificationService>();
-    builder.Services.AddScoped<ICacheService, RedisCacheService>(); 
-
+    builder.Services.AddScoped<ICacheService, MemoryCacheService>(); 
+    builder.Services.AddScoped<InstagramClone.Application.Interfaces.IUnitOfWork, InstagramClone.Infrastructure.Repositories.UnitOfWork>();
+    builder.Services.AddAutoMapper(cfg => cfg.AddMaps(AppDomain.CurrentDomain.GetAssemblies()));
 
     builder.Services.AddControllers();
     // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
@@ -355,6 +359,10 @@ try
     })
     .AddInMemoryStorage();
 
+    // Tự động scan toàn bộ Assembly chứa class CreatePostDtoValidator để đăng ký tất cả Validator
+    builder.Services.AddValidatorsFromAssemblyContaining<CreatePostDtoValidator>();
+    // (Tùy chọn) Cấu hình để ASP.NET Core tự động trả về 400 nếu validation fail
+    builder.Services.AddFluentValidationAutoValidation();
     var app = builder.Build();
 
     // 0. Middleware xử lý lỗi Global
