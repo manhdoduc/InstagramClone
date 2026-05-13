@@ -208,7 +208,7 @@ public class AppDbContext : IdentityDbContext<AppUser>, IApplicationDbContext
         builder.Entity<MessageReaction>()
             .HasOne(mr => mr.Message)
             .WithMany(m => m.Reactions)
-            .HasForeignKey(mr => mr.Id)
+            .HasForeignKey(mr => mr.MessageId)
             .OnDelete(DeleteBehavior.Cascade); // Xóa tin nhắn -> Xóa luôn cả reaction của tin nhắn đó
 
         builder.Entity<MessageReaction>()
