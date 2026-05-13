@@ -9,7 +9,7 @@ A robust, scalable backend API for an Instagram-like social media application, b
 - **Content**: Create posts, comment on posts, like/react.
 - **Real-time Chat**: Direct messaging using SignalR, with typing indicators and online status.
 - **Media Upload**: File upload system for images/avatars (ready for Azure Blob Storage migration).
-- **Performance**: Redis caching and Rate Limiting for high performance and security.
+- **Performance**: In-memory cache and Rate Limiting for high performance and security.
 
 ## 🏗 Architecture
 
@@ -25,7 +25,7 @@ This project is structured using **Clean Architecture** and incorporates the **R
 - **Framework**: .NET 8 (or your current version)
 - **Database**: SQL Server (LocalDB for dev) & Entity Framework Core
 - **Real-time**: SignalR
-- **Caching**: Redis
+- **Caching**: In-memory cache
 - **Mapping**: AutoMapper
 - **Validation**: FluentValidation
 - **Logging**: Serilog (with Seq support)
