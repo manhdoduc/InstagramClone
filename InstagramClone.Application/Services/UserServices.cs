@@ -1,19 +1,19 @@
+using AutoMapper;
+using AutoMapper.QueryableExtensions;
 using InstagramClone.Application.DTOs.InfoUser;
+using InstagramClone.Application.Interfaces;
+using InstagramClone.Application.Interfaces.Caching;
+using InstagramClone.Application.Interfaces.Data;
 using InstagramClone.Application.Interfaces.Services;
 using InstagramClone.Common.Constants;
+using InstagramClone.Common.Helper;
 using InstagramClone.Common.Results;
 using InstagramClone.Domain.Constants;
 using InstagramClone.Domain.Entities;
 using InstagramClone.Domain.Enums;
-using InstagramClone.Application.Interfaces.Data;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using InstagramClone.Application.Interfaces.Caching;
-
-using AutoMapper;
-using AutoMapper.QueryableExtensions;
-using InstagramClone.Application.Interfaces;
 
 namespace InstagramClone.Application.Services;
 public class UserServices(IStorageServices storageServices, UserManager<AppUser> userManager, 
@@ -43,7 +43,7 @@ public class UserServices(IStorageServices storageServices, UserManager<AppUser>
 
         // 3. Cập nhật link mới vào DB
         user.AvatarUrl = avatarUrl;
-        var updateResult = await userManager.ExecuteUpdateAsync(user);
+        var updateResult = await userManager.UpdateAsync(user);
 
         // 4. Nếu DB lỗi -> Xóa file MỚI (Rollback)
         if (!updateResult.Succeeded)
@@ -218,7 +218,7 @@ public class UserServices(IStorageServices storageServices, UserManager<AppUser>
         if (string.IsNullOrWhiteSpace(searchTerm))
             return Result<List<UserSummaryDto>>.BadRequest(new Error(ErrorCodes.BadRequest, "Search term cannot be empty."));
 
-        searchTerm = searchTerm.Trim().ToLower();
+        searchTerm = RemoveDiacritics.RemoveDiacritic(searchTerm.Trim());
 
         var query = unitOfWork.Users.Query();
 
@@ -229,7 +229,7 @@ public class UserServices(IStorageServices storageServices, UserManager<AppUser>
         }
         else
         {
-            query = query.Where(u => (u.FirstName + " " + u.LastName).ToLower().Contains(searchTerm));
+            query = query.Where(u => (u.FullNameSearch!).Contains(searchTerm));
         }
         var user = await query
             .Take(15)

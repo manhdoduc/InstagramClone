@@ -4,6 +4,7 @@ using InstagramClone.Common.Constants;
 using InstagramClone.Common.Models.Config;
 using InstagramClone.Common.Results;
 using InstagramClone.Domain.Entities;
+using InstagramClone.Common.Helper;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
@@ -27,7 +28,8 @@ namespace InstagramClone.Application.Services
                 UserName = registerUserDto.NickName,
                 Email = registerUserDto.Email,
                 FirstName = registerUserDto.FirstName,
-                LastName = registerUserDto.LastName
+                LastName = registerUserDto.LastName,
+                FullNameSearch = RemoveDiacritics.RemoveDiacritic(registerUserDto.FirstName + " " + registerUserDto.LastName)
             };
 
             var result = await userManager.CreateAsync(user, registerUserDto.Password);

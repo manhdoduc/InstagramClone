@@ -44,6 +44,10 @@ public class AppDbContext : IdentityDbContext<AppUser>, IApplicationDbContext
         // Lát nữa có Post, Comment cũng sẽ thêm đoạn filter tương tự
         builder.Entity<AppUser>().HasQueryFilter(u => !u.IsDeleted);
 
+        builder.Entity<AppUser>().HasIndex(u => u.FullNameSearch);
+        builder.Entity<AppUser>().HasIndex(u => u.UserName);
+        builder.Entity<AppUser>().HasIndex(u => u.Email);
+
         // Tự động bỏ qua các Post và Media đã bị xóa mềm
         builder.Entity<Post>().HasQueryFilter(p => !p.IsDeleted);
         builder.Entity<PostMedia>().HasQueryFilter(m => !m.IsDeleted);
@@ -201,7 +205,15 @@ public class AppDbContext : IdentityDbContext<AppUser>, IApplicationDbContext
             .HasForeignKey(m => m.SenderId)
             .OnDelete(DeleteBehavior.Restrict);
 
-        // Cấu hình cho MessageReaction
+        // Cấu hình cho bảng MessageReaction
+        builder.Entity<MessageReaction>(entity =>
+        {
+            // 1. Tạo một Index duy nhất (Unique Index) cho cặp UserId và MessageId
+            // Điều này đảm bảo 1 User chỉ có duy nhất 1 dòng Reaction cho 1 Message cụ thể
+            // Tên Index này là "IX_Unique_User_Message_Reaction" để dễ nhận biết trong database
+            entity.HasIndex(mr => new { mr.UserId, mr.MessageId }, "IX_Unique_User_Message_Reaction")
+                  .IsUnique();
+        });
         builder.Entity<MessageReaction>()
             .HasQueryFilter(mr => !mr.IsDeleted); // Tự động bỏ qua các reaction đã bị xóa mềm
 
