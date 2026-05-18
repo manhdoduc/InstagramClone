@@ -1,4 +1,7 @@
 <Solution>
+  <Project Path="docker-compose.dcproj">
+    <Build />
+  </Project>
   <Project Path="InstagramClone.API/InstagramClone.API.csproj" />
   <Project Path="InstagramClone.Application/InstagramClone.Application.csproj" />
   <Project Path="InstagramClone.Common/InstagramClone.Common.csproj" Id="749effb6-315f-42de-960f-148a0d77e178" />

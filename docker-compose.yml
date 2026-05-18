@@ -1,0 +1,31 @@
+services:
+  instagramclone.api:
+    image: ${DOCKER_REGISTRY-}instagramcloneapi
+    build:
+      context: .
+      dockerfile: InstagramClone.API/Dockerfile
+    ports:
+      - "5063:5063"
+    environment:
+      - ASPNETCORE_URLS=http://*:5063
+    depends_on:
+      - mssql
+      - seq_logs
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2019-latest
+    container_name: sql
+    hostname: mssql
+    environment:
+      - ACCEPT_EULA=Y
+      - SA_PASSWORD=033355@Manh
+    restart: unless-stopped
+    ports:
+      - "1433:1433"
+  seq_logs:
+    image: datalust/seq:latest
+    environment:
+      - ACCEPT_EULA=Y
+      - SEQ_FIRSTRUN_ADMINPASSWORD=password123
+    restart: unless-stopped
+    ports:
+      - "5342:80"
