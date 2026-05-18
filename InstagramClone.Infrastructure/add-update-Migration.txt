@@ -1,3 +1,3 @@
-﻿dotnet ef migrations add AddFullNameSearch --project InstagramClone.Infrastructure --startup-project InstagramClone.API --context AppDbContext
+﻿dotnet ef migrations add AddMiniInstaDB --project InstagramClone.Infrastructure --startup-project InstagramClone.API --context AppDbContext
 
 dotnet ef database update --project InstagramClone.Infrastructure --startup-project InstagramClone.API --context AppDbContext

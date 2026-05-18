@@ -35,7 +35,7 @@ Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Override("Microsoft.EntityFrameworkCore", LogEventLevel.Warning)
     .Enrich.FromLogContext()
     .WriteTo.Console()
-    .WriteTo.Seq("http://localhost:5342")
+    .WriteTo.Seq("http://host.docker.internal:5341")
     .WriteTo.File("logs/log-.txt", rollingInterval: RollingInterval.Day)
     .CreateBootstrapLogger();
 
@@ -243,11 +243,20 @@ try
     // 1. Thêm đoạn này lên phía trên, ngay sau builder.Services.AddControllers();
     builder.Services.AddCors(options =>
     {
-        options.AddPolicy("AllowAll", policy =>
+        options.AddPolicy("InstagramCorsPolicy", policy =>
         {
-            policy.AllowAnyOrigin()
+            var origins = builder.Configuration.GetSection("AllowedOrigins").Get<string[]>();
+            if (origins != null && origins.Length > 0)
+            {
+                policy.WithOrigins(origins)
                   .AllowAnyMethod()
-                  .AllowAnyHeader();
+                  .AllowAnyHeader()
+                  .AllowCredentials();
+            }
+            else
+            {
+                Log.Warning("No allowed origins configured for CORS. Please check your configuration.");
+            }
         });
     });
 
@@ -399,7 +408,7 @@ try
 
 
     // 2. Thêm đoạn này vào phần pipeline, PHẢI NẰM TRƯỚC app.UseAuthentication() và app.UseAuthorization()
-    app.UseCors("AllowAll");
+    app.UseCors("InstagramCorsPolicy");
 
     // Configure the HTTP request pipeline.
     if (app.Environment.IsDevelopment())
@@ -475,6 +484,25 @@ try
     });
 
     Log.Information("Application started successfully.");
+
+    using (var scope = app.Services.CreateScope())
+    {
+        var services = scope.ServiceProvider;
+        try
+        {
+            var context = services.GetRequiredService<AppDbContext>();
+            if (context.Database.GetPendingMigrations().Any())
+            {
+                Log.Information("Applying pending migrations...");
+                context.Database.Migrate();
+                Log.Information("Migrations applied successfully.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "An error occurred while migrating the database.");
+        }
+    }
 
     app.Run();
 
