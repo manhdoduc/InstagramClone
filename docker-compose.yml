@@ -8,9 +8,12 @@ services:
       - "5063:5063"
     environment:
       - ASPNETCORE_URLS=http://*:5063
+      - ASPNETCORE_ENVIRONMENT=Development
     depends_on:
       - mssql
       - seq_logs
+    networks:
+      - app-network
   mssql:
     image: mcr.microsoft.com/mssql/server:2019-latest
     container_name: sql
@@ -21,6 +24,8 @@ services:
     restart: unless-stopped
     ports:
       - "1433:1433"
+    networks:
+      - app-network
   seq_logs:
     image: datalust/seq:latest
     environment:
@@ -29,3 +34,21 @@ services:
     restart: unless-stopped
     ports:
       - "5342:80"
+    networks:
+      - app-network
+  nginx:
+    build:
+      context: .
+      dockerfile: nginx/Dockerfile
+    ports:
+      - "44391:443"
+    depends_on:
+      - instagramclone.api
+    networks:
+      - app-network
+    restart: always
+    
+
+networks:
+  app-network:
+    driver: bridge

@@ -15,6 +15,7 @@ using InstagramClone.Infrastructure.Hubs;
 using InstagramClone.Infrastructure.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
@@ -417,8 +418,11 @@ try
         app.UseSwaggerUI();
     }
 
-    app.UseHttpsRedirection();
-
+    app.UseForwardedHeaders(new ForwardedHeadersOptions
+    {
+        ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto
+    });
+    // app.UseHttpsRedirection(); // Tạm thời comment dòng này vì nó tự động redirect HTTP sang HTTPS (và thường redirect về localhost) khi chạy qua Docker/Nginx.
     app.UseStaticFiles();
 
 

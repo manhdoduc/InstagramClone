@@ -1,4 +1,12 @@
 <Solution>
+  <Folder Name="/nginx/">
+    <File Path="nginx/api-cert.conf" />
+    <File Path="nginx/api-cert.crt" />
+    <File Path="nginx/api-cert.key" />
+    <File Path="nginx/api-cert.pfx" />
+    <File Path="nginx/Dockerfile" />
+    <File Path="nginx/nginx.conf" />
+  </Folder>
   <Project Path="docker-compose.dcproj">
     <Build />
   </Project>

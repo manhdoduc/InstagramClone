@@ -368,3 +368,7 @@ appsettings.Local.json
 
 # Chặn ảnh upload của user
 InstagramClone.API/wwwroot/media/*
+
+# tránh lộ key api-cert.key
+*.key
+*.pfx
