@@ -489,24 +489,24 @@ try
 
     Log.Information("Application started successfully.");
 
-    using (var scope = app.Services.CreateScope())
-    {
-        var services = scope.ServiceProvider;
-        try
-        {
-            var context = services.GetRequiredService<AppDbContext>();
-            if (context.Database.GetPendingMigrations().Any())
-            {
-                Log.Information("Applying pending migrations...");
-                context.Database.Migrate();
-                Log.Information("Migrations applied successfully.");
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "An error occurred while migrating the database.");
-        }
-    }
+    //using (var scope = app.Services.CreateScope())
+    //{
+    //    var services = scope.ServiceProvider;
+    //    try
+    //    {
+    //        var context = services.GetRequiredService<AppDbContext>();
+    //        if (context.Database.GetPendingMigrations().Any())
+    //        {
+    //            Log.Information("Applying pending migrations...");
+    //            context.Database.Migrate();
+    //            Log.Information("Migrations applied successfully.");
+    //        }
+    //    }
+    //    catch (Exception ex)
+    //    {
+    //        Log.Error(ex, "An error occurred while migrating the database.");
+    //    }
+    //} dung docker database image đã tự động apply migration khi khởi động, nên không cần đoạn code này nữa. Nếu muốn dùng thì phải đảm bảo database đã sẵn sàng trước khi app cố gắng kết nối và apply migration, nếu không sẽ gặp lỗi.
 
     app.Run();
 

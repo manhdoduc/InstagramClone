@@ -6,16 +6,13 @@ services:
       dockerfile: InstagramClone.API/Dockerfile
     ports:
       - "5063:5063"
-    environment:
-      - ASPNETCORE_URLS=http://*:5063
-      - ASPNETCORE_ENVIRONMENT=Development
     depends_on:
       - mssql
       - seq_logs
     networks:
       - app-network
   mssql:
-    image: mcr.microsoft.com/mssql/server:2019-latest
+    image: "domanh114/conference-insta-db"
     container_name: sql
     hostname: mssql
     environment:

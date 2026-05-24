@@ -10,7 +10,6 @@ namespace InstagramClone.Domain.Entities
 {
     public class SavedPost : BaseEntity
     {
-        [MaxLength(450)]
         public string UserId { get; set; } = string.Empty;
         public AppUser AppUser { get; set; } = null!;
         public Guid PostId { get; set; } 

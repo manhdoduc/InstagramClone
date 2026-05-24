@@ -490,9 +490,6 @@ namespace InstagramClone.Infrastructure.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uniqueidentifier");
 
-                    b.Property<string>("AppUserId")
-                        .HasColumnType("nvarchar(450)");
-
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("datetime2");
 
@@ -500,9 +497,6 @@ namespace InstagramClone.Infrastructure.Migrations
                         .HasColumnType("bit");
 
                     b.Property<Guid>("PostId")
-                        .HasColumnType("uniqueidentifier");
-
-                    b.Property<Guid?>("PostId1")
                         .HasColumnType("uniqueidentifier");
 
                     b.Property<DateTime?>("UpdatedAt")
@@ -515,11 +509,7 @@ namespace InstagramClone.Infrastructure.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("AppUserId");
-
                     b.HasIndex("PostId");
-
-                    b.HasIndex("PostId1");
 
                     b.HasIndex("UserId");
 
@@ -857,22 +847,14 @@ namespace InstagramClone.Infrastructure.Migrations
 
             modelBuilder.Entity("InstagramClone.Domain.Entities.SavedPost", b =>
                 {
-                    b.HasOne("InstagramClone.Domain.Entities.AppUser", null)
-                        .WithMany("SavedPosts")
-                        .HasForeignKey("AppUserId");
-
                     b.HasOne("InstagramClone.Domain.Entities.Post", "Post")
-                        .WithMany()
+                        .WithMany("SavedPosts")
                         .HasForeignKey("PostId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
-                    b.HasOne("InstagramClone.Domain.Entities.Post", null)
-                        .WithMany("SavedPosts")
-                        .HasForeignKey("PostId1");
-
                     b.HasOne("InstagramClone.Domain.Entities.AppUser", "AppUser")
-                        .WithMany()
+                        .WithMany("SavedPosts")
                         .HasForeignKey("UserId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();

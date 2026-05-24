@@ -140,17 +140,22 @@ public class AppDbContext : IdentityDbContext<AppUser>, IApplicationDbContext
         // 1. Áp dụng Filter xóa mềm
         builder.Entity<SavedPost>().HasQueryFilter(cl => !cl.IsDeleted);
 
-        // 2. Cấu hình quan hệ: Xóa Post thì bay Saved
+        //2. Cấu hình độ dài tối đa cho UserId (vì nó là string và sẽ liên kết với bảng AspNetUsers có khóa chính là string)
+        builder.Entity<SavedPost>()
+            .Property(sp => sp.UserId)
+            .HasMaxLength(450); 
+
+        // 3. Cấu hình quan hệ: Xóa Post thì bay Saved
         builder.Entity<SavedPost>()
             .HasOne(sp => sp.Post)
-            .WithMany()
+            .WithMany(p => p.SavedPosts)
             .HasForeignKey(sp => sp.PostId)
             .OnDelete(DeleteBehavior.Cascade);
 
-        // 3. Cấu hình quan hệ: Xóa User thì không cho xóa ngang
+        // 4. Cấu hình quan hệ: Xóa User thì không cho xóa ngang
         builder.Entity<SavedPost>()
             .HasOne(sp => sp.AppUser)
-            .WithMany()
+            .WithMany(sp => sp.SavedPosts)
             .HasForeignKey(sp => sp.UserId)
             .OnDelete(DeleteBehavior.Restrict);
 
