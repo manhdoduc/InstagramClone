@@ -1,6 +1,8 @@
 services:
   instagramclone.api:
     image: ${DOCKER_REGISTRY-}instagramcloneapi
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
     build:
       context: .
       dockerfile: InstagramClone.API/Dockerfile
@@ -18,9 +20,17 @@ services:
     environment:
       - ACCEPT_EULA=Y
       - SA_PASSWORD=033355@Manh
+      - MSSQL_DATA_DIR=/var/opt/sqlserver/data
+      - MSSQL_LOG_DIR=/var/opt/sqlserver/log
+      - MSSQL_BACKUP_DIR=/var/opt/sqlserver/backup 
     restart: unless-stopped
     ports:
       - "1433:1433"
+    volumes:
+      - sqlsystem:/var/opt/mssql
+      - sqldata:/var/opt/sqlserver/data
+      - sqllog:/var/opt/sqlserver/log
+      - sqlbackup:/var/opt/sqlserver/backup 
     networks:
       - app-network
   seq_logs:

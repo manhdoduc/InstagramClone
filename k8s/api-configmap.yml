@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: instagramapi-config
+  namespace: cloud-native-dev
+data:
+  # ASP.NET Core environment
+  ASPNETCORE_ENVIRONMENT: "Production"
+  ASPNETCORE_URLS: "http://*:80"
+  # Serilog Seq endpoint (override index 2 trong WriteTo array)
+  Serilog__WriteTo__2__Args__serverUrl: "http://instagramseq-svc"

@@ -1,4 +1,16 @@
 <Solution>
+  <Folder Name="/k8s/">
+    <File Path="k8s/admin-user-cluster-role.yml" />
+    <File Path="k8s/admin-user.yml" />
+    <File Path="k8s/api-configmap.yml" />
+    <File Path="k8s/api-deployment.yml" />
+    <File Path="k8s/api-secret.yml" />
+    <File Path="k8s/ingress.yml" />
+    <File Path="k8s/mssql-deployment.yml" />
+    <File Path="k8s/namespace.yml" />
+    <File Path="k8s/persistence-volumes.yml" />
+    <File Path="k8s/seq-deployment.yml" />
+  </Folder>
   <Folder Name="/nginx/">
     <File Path="nginx/api-cert.conf" />
     <File Path="nginx/api-cert.crt" />

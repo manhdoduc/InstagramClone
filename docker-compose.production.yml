@@ -1,8 +1,10 @@
 services:
   instagramclone.api:
     environment:
-      - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_ENVIRONMENT=Production 
       - ASPNETCORE_URLS=http://*:5063
+      - ConnectionStrings__DefaultConnection=Server=mssql;Database=MiniInstaDb;User ID=sa;Password=033355@Manh;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=True
+      - JwtSettings__Key=YourSuperSecretKeyForJwtTokens123!@#
     volumes:
       - ${APPDATA}/Microsoft/UserSecrets:/home/app/.microsoft/usersecrets:ro
       - ${APPDATA}/Microsoft/UserSecrets:/root/.microsoft/usersecrets:ro

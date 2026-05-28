@@ -372,3 +372,7 @@ InstagramClone.API/wwwroot/media/*
 # tránh lộ key api-cert.key
 *.key
 *.pfx
+
+# K8s Secret files (chứa DB password, JWT key)
+k8s/*-secret.yml
+k8s/*-secret.yaml

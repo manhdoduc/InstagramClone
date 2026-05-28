@@ -3,6 +3,8 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Staging
       - ASPNETCORE_URLS=http://*:5063
+      - ConnectionStrings__DefaultConnection=Server=mssql;Database=MiniInstaDb;User ID=sa;Password=${DB_PASSWORD:-DefaultStagingPassword};Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=True
+      - JwtSettings__Key=${JWT_SECRET_KEY:-DefaultStagingJwtKey123!@#}
     volumes:
       - ${APPDATA}/Microsoft/UserSecrets:/home/app/.microsoft/usersecrets:ro
       - ${APPDATA}/Microsoft/UserSecrets:/root/.microsoft/usersecrets:ro
