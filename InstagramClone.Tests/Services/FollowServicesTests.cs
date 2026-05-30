@@ -1,6 +1,7 @@
 using FluentAssertions;
 using InstagramClone.Application.Interfaces;
 using InstagramClone.Application.Interfaces.Caching;
+using InstagramClone.Application.Interfaces.Data;
 using InstagramClone.Application.Interfaces.Repositories;
 using InstagramClone.Application.Interfaces.Services;
 using InstagramClone.Application.Services;

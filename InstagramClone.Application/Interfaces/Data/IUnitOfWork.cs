@@ -1,7 +1,7 @@
 using InstagramClone.Application.Interfaces.Repositories;
 using InstagramClone.Domain.Entities;
 
-namespace InstagramClone.Application.Interfaces;
+namespace InstagramClone.Application.Interfaces.Data;
 
 public interface IUnitOfWork
 {
