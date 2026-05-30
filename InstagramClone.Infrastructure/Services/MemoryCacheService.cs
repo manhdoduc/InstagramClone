@@ -2,7 +2,7 @@
 using Microsoft.Extensions.Caching.Distributed;
 using System.Text.Json;
 
-namespace InstagramClone.Application.Services
+namespace InstagramClone.Infrastructure.Services
 {
     public class MemoryCacheService(IDistributedCache cache) : ICacheService
     {

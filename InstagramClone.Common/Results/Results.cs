@@ -43,7 +43,7 @@ public readonly record struct Result<T>
 
     public static Result<T> Success(T value) => new(true, value, []);
     public static Result<T> Failure(params Error[] errors) => new(false, default, errors);
-    public static Result<T> NotFound(Error Error) => new(false, default, []);
+    public static Result<T> NotFound(Error Error) => new(false, default, [Error]);
     public static Result<T> BadRequest() => new(false, default, []);
     public static Result<T> BadRequest(params Error[] errors) => new(false, default, errors);
 

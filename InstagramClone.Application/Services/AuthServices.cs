@@ -10,6 +10,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
 using Serilog;
 using System.IdentityModel.Tokens.Jwt;
+using JwtRegisteredClaimNames = Microsoft.IdentityModel.JsonWebTokens.JwtRegisteredClaimNames;
 using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text;
@@ -17,7 +18,8 @@ namespace InstagramClone.Application.Services
 {
     public class AuthServices(
         UserManager<AppUser> userManager,
-        IOptions<JwtSettings> jwtOptions
+        IOptions<JwtSettings> jwtOptions,
+        ICurrentUserService currentUser
         ) : IAuthServices
     {
 
@@ -40,7 +42,7 @@ namespace InstagramClone.Application.Services
                 return Result<RegisteredUserDto>.BadRequest(error);
             }
 
-            var roleResult = await userManager.AddToRoleAsync(user, registerUserDto.Role);
+            var roleResult = await userManager.AddToRoleAsync(user, RoleNames.User);
 
             var registeredUserDto = new RegisteredUserDto
             {
@@ -49,7 +51,7 @@ namespace InstagramClone.Application.Services
                 FirstName = user.FirstName,
                 LastName = user.LastName,
                 UserName = registerUserDto.NickName,
-                Role = registerUserDto.Role
+                Role = RoleNames.User
             };
 
             Log.Information("User {UserId} registered successfully with email {Email}", user.Id, user.Email);
@@ -77,7 +79,7 @@ namespace InstagramClone.Application.Services
             var refreshToken = await GenerateRefreshToken();
 
             // Update Refresh Token in database
-            user.RefreshToken = refreshToken;
+            user.RefreshToken = await HashToken(refreshToken);
             user.RefreshTokenExpiryTime = DateTime.UtcNow.AddDays(jwtOptions.Value.RefreshTokenExpiryTime); // Set refresh token expiry time
             await userManager.UpdateAsync(user);
 
@@ -228,5 +230,21 @@ namespace InstagramClone.Application.Services
             return Convert.ToBase64String(hash);
         }
 
+        public async Task<Result<bool>> LogoutAsync()
+        {
+            var userId = currentUser.UserId;
+            var user = await userManager.FindByIdAsync(userId);
+            if (user == null)
+                return Result<bool>.Failure(new Error(ErrorCodes.NotFound, "User not found"));
+
+            user.RefreshToken = null;
+            user.RefreshTokenExpiryTime = DateTime.MinValue;
+
+            var result = await userManager.UpdateAsync(user);
+            if (!result.Succeeded)
+                return Result<bool>.Failure(new Error(ErrorCodes.Failure, "Failed to logout user"));
+
+            return Result<bool>.Success(true);
+        }
     }
 }

@@ -1,4 +1,4 @@
-﻿using InstagramClone.Application.Interfaces.Services;
+using InstagramClone.Application.Interfaces.Services;
 using InstagramClone.Common.Constants;
 using InstagramClone.Common.Results;
 using Microsoft.AspNetCore.Hosting;
@@ -84,7 +84,15 @@ namespace InstagramClone.Infrastructure.Services
                 return Result.Success();
             }
 
-            var filePath = Path.Combine(webHostEnvironment.WebRootPath, fileUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar));
+            // Security: Resolve full path and ensure it stays within wwwroot to prevent path traversal
+            var filePath = Path.GetFullPath(
+                Path.Combine(webHostEnvironment.WebRootPath, fileUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar)));
+
+            if (!filePath.StartsWith(webHostEnvironment.WebRootPath, StringComparison.OrdinalIgnoreCase))
+            {
+                return Result.Failure(new Error(ErrorCodes.Failure, "Invalid file path — access denied."));
+            }
+
             if (File.Exists(filePath))
             {
                 File.Delete(filePath);

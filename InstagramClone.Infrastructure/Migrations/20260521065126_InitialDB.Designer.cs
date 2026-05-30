@@ -840,7 +840,7 @@ namespace InstagramClone.Infrastructure.Migrations
             modelBuilder.Entity("InstagramClone.Domain.Entities.PostMedia", b =>
                 {
                     b.HasOne("InstagramClone.Domain.Entities.Post", "Post")
-                        .WithMany("MediaPorts")
+                        .WithMany("MediaItems")
                         .HasForeignKey("PostId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -961,7 +961,7 @@ namespace InstagramClone.Infrastructure.Migrations
 
                     b.Navigation("Likes");
 
-                    b.Navigation("MediaPorts");
+                    b.Navigation("MediaItems");
 
                     b.Navigation("PostHashtags");
 

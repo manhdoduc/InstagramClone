@@ -11,7 +11,7 @@ using InstagramClone.Application.Interfaces.Caching;
 
 using AutoMapper;
 using AutoMapper.QueryableExtensions;
-using InstagramClone.Application.Interfaces;
+using InstagramClone.Application.Helpers;
 using InstagramClone.Application.DTOs.post;
 
 namespace InstagramClone.Application.Services
@@ -23,12 +23,12 @@ namespace InstagramClone.Application.Services
             var observerId = currentUser.UserId;
             // Invalidate follow lists cached per (target, viewer)
             await cache.RemoveAsync($"followers:{targetId}:{observerId}");
-            await cache.RemoveAsync($"following:{observerId}:{observerId}");
+            await cache.RemoveAsync($"following:{observerId}:{targetId}");
 
             if (observerId == targetId)
                 return Result<string>.BadRequest(new Error(ErrorCodes.Conflict, "You cannot follow yourself."));
 
-            var targetUser = await unitOfWork.Users.Query().FirstOrDefaultAsync(u => u.Id == targetId);
+            var targetUser = await unitOfWork.Users.QueryNoTracking().FirstOrDefaultAsync(u => u.Id == targetId);
             if (targetUser == null)
                 return Result<string>.NotFound(new Error(ErrorCodes.NotFound, "The user you are trying to follow does not exist."));
 
@@ -133,7 +133,7 @@ namespace InstagramClone.Application.Services
             var cacheKey = $"followers:{targetUserId}:{currentUserId}:{request.PageSize}:{request.Cursor}";
             var cachedFollowers = await cache.GetOrCreateAsync<CursorPagedResponse<UserSummaryDto>>(cacheKey, factory: async () =>
             {
-                var query = unitOfWork.Follows.Query()
+                var query = unitOfWork.Follows.QueryNoTracking()
                     .Where(f => f.TargetId == targetUserId && f.Status == FollowStatus.Accepted);
 
                 if (request.Cursor.HasValue)
@@ -186,7 +186,7 @@ namespace InstagramClone.Application.Services
             var cacheKey = $"following:{targetUserId}:{currentUserId}:{request.PageSize}:{request.Cursor}";
             var cachedFollowing = await cache.GetOrCreateAsync<CursorPagedResponse<UserSummaryDto>>(cacheKey, factory: async () =>
             {
-                var query = unitOfWork.Follows.Query()
+                var query = unitOfWork.Follows.QueryNoTracking()
                     .Where(f => f.ObserverId == targetUserId && f.Status == FollowStatus.Accepted);
 
                 if (request.Cursor.HasValue)

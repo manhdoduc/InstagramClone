@@ -3,15 +3,9 @@ using InstagramClone.Application.DTOs.Chats;
 using InstagramClone.Application.DTOs.Common;
 using InstagramClone.Application.DTOs.post;
 using InstagramClone.Application.Interfaces.Chats;
-using InstagramClone.Application.Interfaces.Services;
-using InstagramClone.Common.Results;
 using InstagramClone.Domain.Entities;
-using InstagramClone.Infrastructure.Data;
-using InstagramClone.Infrastructure.Hubs;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.AspNetCore.SignalR;
-using Microsoft.EntityFrameworkCore;
 
 namespace InstagramClone.API.Controllers
 {

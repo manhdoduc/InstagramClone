@@ -19,6 +19,16 @@ public class GenericRepository<T>(AppDbContext context) : IGenericRepository<T> 
         return query;
     }
 
+    public IQueryable<T> QueryNoTracking(Expression<Func<T, bool>>? predicate = null)
+    {
+        var query = _dbSet.AsNoTracking().AsQueryable();
+        if (predicate != null)
+        {
+            query = query.Where(predicate);
+        }
+        return query;
+    }
+
     public async Task<T?> GetByIdAsync(params object[] keyValues)
     {
         return await _dbSet.FindAsync(keyValues);

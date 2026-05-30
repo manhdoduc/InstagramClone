@@ -1,7 +1,6 @@
 using AutoMapper;
 using AutoMapper.QueryableExtensions;
 using InstagramClone.Application.DTOs.InfoUser;
-using InstagramClone.Application.Interfaces;
 using InstagramClone.Application.Interfaces.Caching;
 using InstagramClone.Application.Interfaces.Data;
 using InstagramClone.Application.Interfaces.Services;
@@ -178,7 +177,7 @@ public class UserServices(IStorageServices storageServices, UserManager<AppUser>
 
                 bool myAccount = userId == targetUserId;
 
-                var profile = await unitOfWork.Users.Query()
+                var profile = await unitOfWork.Users.QueryNoTracking()
                     .Where(u => u.Id == targetUserId)
                     .ProjectTo<UserProfileResponseDto>(mapper.ConfigurationProvider, new { currentUserId = userId, targetUserId = targetUserId })
                     .FirstOrDefaultAsync();
@@ -190,7 +189,7 @@ public class UserServices(IStorageServices storageServices, UserManager<AppUser>
 
                 if (canViewPosts)
                 {
-                    profile.RecentPosts = await unitOfWork.Posts.Query()
+                    profile.RecentPosts = await unitOfWork.Posts.QueryNoTracking()
                         .Where(p => p.UserId == targetUserId)
                         .OrderByDescending(p => p.CreatedAt)
                         .Take(12)
@@ -220,7 +219,7 @@ public class UserServices(IStorageServices storageServices, UserManager<AppUser>
 
         searchTerm = RemoveDiacritics.RemoveDiacritic(searchTerm.Trim());
 
-        var query = unitOfWork.Users.Query();
+        var query = unitOfWork.Users.QueryNoTracking();
 
         if (searchTerm.StartsWith("@"))
         {

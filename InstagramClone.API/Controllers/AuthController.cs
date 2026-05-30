@@ -1,6 +1,5 @@
 using InstagramClone.Application.DTOs.Auth;
 using InstagramClone.Application.Interfaces.Services;
-using InstagramClone.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
@@ -31,6 +30,14 @@ public class AuthController(IAuthServices userServices) : BaseApiController
     public async Task<ActionResult<TokenResponseDto>> RefreshToken(TokenResponseDto tokenResponseDto)
     {
         var result = await userServices.RefreshTokenAsync(tokenResponseDto);
+        return ToActionResult(result);
+    }
+
+    [Authorize]
+    [HttpPost("logout")]
+    public async Task<ActionResult<bool>> Logout()
+    {
+        var result = await userServices.LogoutAsync();
         return ToActionResult(result);
     }
 }

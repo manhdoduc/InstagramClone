@@ -17,7 +17,7 @@ using System.Xml.XPath;
 
 using AutoMapper;
 using AutoMapper.QueryableExtensions;
-using InstagramClone.Application.Interfaces;
+using InstagramClone.Application.Helpers;
 
 namespace InstagramClone.Application.Services
 {
@@ -35,17 +35,17 @@ namespace InstagramClone.Application.Services
         {
             var currentUserId = currentUser.UserId;
 
-            var isPrivate = await unitOfWork.Users.Query().FirstOrDefaultAsync(u => u.Id == targetUserId && u.IsPrivateAccount == false);
+            var isPrivate = await unitOfWork.Users.QueryNoTracking().FirstOrDefaultAsync(u => u.Id == targetUserId && u.IsPrivateAccount == false);
             if (isPrivate == null) return Result<bool>.Failure(new Error(ErrorCodes.Failure, "User is private"));
 
             // 1. Kiểm tra xem người thực hiện lệnh có ở trong nhóm không
-            var isCurrentMember = await unitOfWork.ChatParticipants.Query()
+            var isCurrentMember = await unitOfWork.ChatParticipants.QueryNoTracking()
                 .AnyAsync(cp => cp.ChatRoomId == chatRoomId && cp.UserId == currentUserId);
             if (!isCurrentMember)
                 return Result<bool>.Failure(new Error(ErrorCodes.Failure, "user is already in the group"));
 
             // 2. Kiểm tra xem targetUserId đã là thành viên chưa
-            var isTargetAlreadyMember = await unitOfWork.ChatParticipants.Query()
+            var isTargetAlreadyMember = await unitOfWork.ChatParticipants.QueryNoTracking()
                 .AnyAsync(cp => cp.ChatRoomId == chatRoomId && cp.UserId == targetUserId);
             if (isTargetAlreadyMember)
                 return Result<bool>.Failure(new Error(ErrorCodes.Failure, "user is member"));
@@ -85,7 +85,7 @@ namespace InstagramClone.Application.Services
             var currentUserId = currentUser.UserId;
 
             // 1. Logic check quyền: Admin mới được xóa người khác. 
-            var requesterInfo = await unitOfWork.ChatParticipants.Query()
+            var requesterInfo = await unitOfWork.ChatParticipants.QueryNoTracking()
                 .Where(cp => cp.ChatRoomId == chatRoomId && cp.UserId == currentUserId)
                 .Select(cp => new { cp.IsAdmin })
                 .FirstOrDefaultAsync();
@@ -115,7 +115,7 @@ namespace InstagramClone.Application.Services
         public async Task<Result<Guid>> CreateGroupRoomAsync(CreateGroupDto groupDto)
         {
             var currentUserId = currentUser.UserId;
-            var nameCurrentUser = await unitOfWork.Users.Query().Where(u => u.Id == currentUserId).Select(u => u.UserName).FirstOrDefaultAsync();
+            var nameCurrentUser = await unitOfWork.Users.QueryNoTracking().Where(u => u.Id == currentUserId).Select(u => u.UserName).FirstOrDefaultAsync();
             
             var newChatRoom = new ChatRoom
             {
@@ -150,13 +150,13 @@ namespace InstagramClone.Application.Services
         public async Task<Result<Guid>> GetOrCreatePrivateRoomAsync(string targetUserId)
         {
             var currentUserId = currentUser.UserId;
-            var nameCurrentUser = unitOfWork.Users.Query().Where(u => u.Id == currentUserId).Select(u => u.UserName).FirstOrDefault();
+            var nameCurrentUser = unitOfWork.Users.QueryNoTracking().Where(u => u.Id == currentUserId).Select(u => u.UserName).FirstOrDefault();
 
             if (currentUserId == targetUserId)
                 return Result<Guid>.Failure(new Error(ErrorCodes.Failure, "currentUser is targerUser"));
 
             // Kiểm tra xem đã có phòng chat riêng giữa 2 người chưa
-            var existingChatRoom = await unitOfWork.ChatRooms.Query()
+            var existingChatRoom = await unitOfWork.ChatRooms.QueryNoTracking()
                 .Where(cr => cr.IsGroupChat == false)
                 .Where(cr => cr.ChatParticipant.Any(cp => cp.UserId == currentUserId))
                 .Where(cr => cr.ChatParticipant.Any(cp => cp.UserId == targetUserId))
@@ -201,7 +201,7 @@ namespace InstagramClone.Application.Services
                 if (!isMember)
                     return Result<CursorPagedResponse<MessageDto>>.Failure(new Error(ErrorCodes.Failure, "user not a member"));
 
-                var query = unitOfWork.Messages.Query();
+                var query = unitOfWork.Messages.QueryNoTracking();
 
                 if (messagePagi.Cursor.HasValue)
                 {
@@ -215,23 +215,9 @@ namespace InstagramClone.Application.Services
                     .ProjectTo<MessageDto>(mapper.ConfigurationProvider)
                     .ToListAsync();
 
-                var hasNextMessage = messages.Count > messagePagi.PageSize;
-                DateTime? nextCursor = null;
-
-                if (hasNextMessage)
-                {
-                    messages.RemoveAt(messagePagi.PageSize);
-                    nextCursor = messages.Last().CreatedAt;
-                }
-
-                var mess = new CursorPagedResponse<MessageDto>
-                {
-                    Items = messages,
-                    HasNextPage = hasNextMessage,
-                    NextCursor = nextCursor,
-                };
+                var mess = PaginationHelper.ToCursorPaged(messages, messagePagi.PageSize, m => m.CreatedAt);
                
-                if(nextCursor == null)
+                if(mess.NextCursor == null)
                 {
                     await MarkRoomAsReadAsync(chatRoomId);
                 }
@@ -255,7 +241,7 @@ namespace InstagramClone.Application.Services
                 cacheKey,
                 factory: async () =>
                 {
-                    return await unitOfWork.ChatRooms.Query()
+                    return await unitOfWork.ChatRooms.QueryNoTracking()
                         .Where(cr => cr.ChatParticipant.Any(cp => cp.UserId == currentUserId))
                         .ProjectTo<ChatRoomDto>(mapper.ConfigurationProvider, new { currentUserId = currentUserId })
                         .OrderByDescending(cr => cr.LastestMessageAt)
@@ -402,7 +388,7 @@ namespace InstagramClone.Application.Services
             var currentUserId = currentUser.UserId;
 
             // 1. Kiểm tra xem tin nhắn có tồn tại không
-            var message = await unitOfWork.Messages.Query().FirstOrDefaultAsync(m => m.Id == messageId);
+            var message = await unitOfWork.Messages.QueryNoTracking().FirstOrDefaultAsync(m => m.Id == messageId);
 
             if (message == null) return Result<MessageReaction>.Failure(new Error(ErrorCodes.NotFound, "Message does not exist."));
             // 2. Kiểm tra xem User này đã từng thả cảm xúc vào tin này chưa

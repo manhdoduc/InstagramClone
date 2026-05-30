@@ -10,10 +10,10 @@ using InstagramClone.Domain.Enums;
 
 using System.Text.RegularExpressions;
 using InstagramClone.Application.Interfaces.Caching;
+using InstagramClone.Application.Helpers;
 using Serilog;
 using AutoMapper;
 using AutoMapper.QueryableExtensions;
-using InstagramClone.Application.Interfaces;
 
 namespace InstagramClone.Application.Services;
 public class PostServices(IUnitOfWork unitOfWork, IMapper mapper, ICurrentUserService currentUser, IStorageServices storageServices, ICacheService cache) : IPostServices
@@ -28,7 +28,7 @@ public class PostServices(IUnitOfWork unitOfWork, IMapper mapper, ICurrentUserSe
         {
             Content = createPostDto.Content ?? string.Empty,
             UserId = userId,
-            MediaPorts = new List<PostMedia>()
+            MediaItems = new List<PostMedia>()
         };
 
         // lưu tạm url để rollback nếu có lỗi
@@ -51,7 +51,7 @@ public class PostServices(IUnitOfWork unitOfWork, IMapper mapper, ICurrentUserSe
                 uploadUrls.Add(mediaUrl);
 
                 // add media url to post
-                newPost.MediaPorts.Add(new PostMedia { MediaUrl = mediaUrl });
+                newPost.MediaItems.Add(new PostMedia { MediaUrl = mediaUrl });
             }
 
             // 4. save post to database
@@ -61,7 +61,7 @@ public class PostServices(IUnitOfWork unitOfWork, IMapper mapper, ICurrentUserSe
 
             if(tags.Any())
             {
-                var exitstingTags = await unitOfWork.Hashtags.Query()
+                var exitstingTags = await unitOfWork.Hashtags.QueryNoTracking()
                     .Where(t => tags.Contains(t.Name))
                     .ToListAsync();
                 
@@ -90,7 +90,7 @@ public class PostServices(IUnitOfWork unitOfWork, IMapper mapper, ICurrentUserSe
                 throw new Exception("Failed to save post to database");
             }
                 
-            Log.Information("User {UserId} created post {PostId} with {MediaCount} images", userId, newPost.Id, newPost.MediaPorts.Count);
+            Log.Information("User {UserId} created post {PostId} with {MediaCount} images", userId, newPost.Id, newPost.MediaItems.Count);
             await cache.BumpScopeVersionAsync("posts:feed:data");
             await cache.BumpScopeVersionAsync("posts:search:data");
             await cache.BumpScopeVersionAsync($"user:profile:rev:{userId}");
@@ -117,7 +117,7 @@ public class PostServices(IUnitOfWork unitOfWork, IMapper mapper, ICurrentUserSe
             return Result.Failure(new Error("Unauthorized", "User is not authenticated"));
 
         //1. find post end medias 
-        var post = await unitOfWork.Posts.Query().Include(p => p.MediaPorts).FirstOrDefaultAsync(p => p.Id == postId);
+        var post = await unitOfWork.Posts.Query().Include(p => p.MediaItems).FirstOrDefaultAsync(p => p.Id == postId);
 
         if(post == null)
             return Result.NotFound(new Error(ErrorCodes.NotFound, "Post does not exist"));
@@ -129,7 +129,7 @@ public class PostServices(IUnitOfWork unitOfWork, IMapper mapper, ICurrentUserSe
         //3. soft delete post and medias
         post.IsDeleted = true; // soft delete post
 
-        foreach (var media in post.MediaPorts)
+        foreach (var media in post.MediaItems)
         {
             media.IsDeleted = true; // soft delete media
         }
@@ -173,51 +173,28 @@ public class PostServices(IUnitOfWork unitOfWork, IMapper mapper, ICurrentUserSe
             var userId = currentUser.UserId;
 
             // Lấy danh sách ID những người mình đang Follow (đã Accepted)
-            var followingIds = await unitOfWork.Follows.Query()
+            var followingIds = await unitOfWork.Follows.QueryNoTracking()
                 .Where(f => f.ObserverId == userId && f.Status == FollowStatus.Accepted)
                 .Select(f => f.TargetId)
                 .ToListAsync();
 
-            // Thêm userId của chính mình để hiển thị cả bài viết của bản thân trong feed
             followingIds.Add(userId);
 
-            // 1. khởi tạo truy vấn cơ bản, chỉ lấy bài của người mình follow và của mình
-            var query = unitOfWork.Posts.Query()
+            var query = unitOfWork.Posts.QueryNoTracking()
                 .Where(p => followingIds.Contains(p.UserId));
 
-            // 2. áp dụng phân trang cursor-based nếu có cursor
-            // Nếu cursor có giá trị, chỉ lấy những bài post được tạo trước thời điểm cursor
-            // tạo sau thì giá trị lớn hơn
             if (cursorPagination.Cursor.HasValue)
             {
                 query = query.Where(p => p.CreatedAt < cursorPagination.Cursor.Value);
             }
 
-            // 3. lấy pageSize + 1 bản ghi để kiểm tra xem có trang tiếp theo hay không
             var posts = await query
-                .OrderByDescending(p => p.CreatedAt) // sắp xếp theo createdAt giảm dần để lấy bài mới nhất trước
+                .OrderByDescending(p => p.CreatedAt)
                 .Take(cursorPagination.PageSize + 1)
                 .ProjectTo<ResponsePostDto>(mapper.ConfigurationProvider, new { currentUserId = currentUser.UserId })
                 .ToListAsync();
 
-            // 4. xác định xem có trang tiếp theo hay không
-            var hasNextPage = posts.Count > cursorPagination.PageSize; // true nếu có nhiều hơn pageSize bản ghi, tức là còn bản ghi cho trang tiếp theo
-            DateTime? nextCursor = null;
-
-            // 5. nếu có trang tiếp theo, lấy createdAt của bản ghi cuối cùng làm cursor cho trang tiếp theo
-            if (hasNextPage)
-            {
-                posts.RemoveAt(cursorPagination.PageSize); // loại bỏ bản ghi thứ pageSize + 1 khỏi kết quả trả về 
-                nextCursor = posts.Last().CreatedAt; // lấy createdAt của bản ghi cuối cùng làm cursor cho trang tiếp theo
-            }
-
-            var pagedResponse = new CursorPagedResponse<ResponsePostDto>
-            {
-                Items = posts,
-                NextCursor = nextCursor,
-                HasNextPage = hasNextPage
-            };
-            return pagedResponse;
+            return PaginationHelper.ToCursorPaged(posts, cursorPagination.PageSize, p => p.CreatedAt);
         });
 
         return Result<CursorPagedResponse<ResponsePostDto>>.Success(cachedFeed);
@@ -273,7 +250,7 @@ public class PostServices(IUnitOfWork unitOfWork, IMapper mapper, ICurrentUserSe
         var cachedPost = await cache.GetOrCreateAsync<ResponsePostDto?>(cacheKey, factory: async () => 
         {
             var post = await unitOfWork.Posts
-            .Query()
+            .QueryNoTracking()
             .Where(p => p.Id == postId)
             .ProjectTo<ResponsePostDto>(mapper.ConfigurationProvider, new { currentUserId = userId })
             .FirstOrDefaultAsync();
@@ -319,7 +296,7 @@ public class PostServices(IUnitOfWork unitOfWork, IMapper mapper, ICurrentUserSe
     //            AuthorId = p.UserId,
     //            AuthorName = p.User.FullName,
     //            AuthorAvatar = p.User.AvatarUrl,
-    //            MediaUrls = p.MediaPorts.Select(m => m.MediaUrl).ToList(),
+    //            MediaUrls = p.MediaItems.Select(m => m.MediaUrl).ToList(),
     //            LikeCount = p.Likes.Count(),
     //            IsLiked = p.Likes.Any(l => l.UserId == userId && !l.IsDeleted), // kiểm tra xem user hiện tại đã like bài post chưa
     //            CommentCount = p.Comments.Count()
@@ -377,7 +354,7 @@ public class PostServices(IUnitOfWork unitOfWork, IMapper mapper, ICurrentUserSe
         var cachedSavedPosts = await cache.GetOrCreateAsync<CursorPagedResponse<ResponsePostDto>>(cacheKey, factory: async () =>
         {
             var query = unitOfWork.SavedPosts
-           .Query()
+           .QueryNoTracking()
            .Where(s => s.UserId == userId && !s.IsDeleted)
            .Select(s => s.Post);
             if (cursorPagination.Cursor.HasValue)
@@ -390,23 +367,7 @@ public class PostServices(IUnitOfWork unitOfWork, IMapper mapper, ICurrentUserSe
                 .ProjectTo<ResponsePostDto>(mapper.ConfigurationProvider, new { currentUserId = userId })
                 .ToListAsync();
 
-            var hasNextPage = savedPosts.Count > cursorPagination.PageSize; // true nếu có nhiều hơn pageSize bản ghi, tức là còn bản ghi cho trang tiếp theo
-            DateTime? nextCursor = null;
-
-            // 5. nếu có trang tiếp theo, lấy createdAt của bản ghi cuối cùng làm cursor cho trang tiếp theo
-            if (hasNextPage)
-            {
-                savedPosts.RemoveAt(cursorPagination.PageSize); // loại bỏ bản ghi thứ pageSize + 1 khỏi kết quả trả về 
-                nextCursor = savedPosts.Last().CreatedAt; // lấy createdAt của bản ghi cuối cùng làm cursor cho trang tiếp theo
-            }
-
-            var pagedResponse = new CursorPagedResponse<ResponsePostDto>
-            {
-                Items = savedPosts,
-                NextCursor = nextCursor,
-                HasNextPage = hasNextPage
-            };
-            return pagedResponse;
+            return PaginationHelper.ToCursorPaged(savedPosts, cursorPagination.PageSize, p => p.CreatedAt);
         });
 
        
@@ -445,49 +406,29 @@ public class PostServices(IUnitOfWork unitOfWork, IMapper mapper, ICurrentUserSe
             // 1. CHUẨN HÓA NGAY TỪ ĐẦU (Cực kỳ quan trọng)
             content = content.Trim().ToLower();
 
-            var query = unitOfWork.Posts.Query();
+            var query = unitOfWork.Posts.QueryNoTracking();
 
-            // 2. PHÂN LOẠI TÌM KIẾM
             if (content.StartsWith("#"))
             {
-                // Nhánh tìm theo Hashtag
                 query = query.Where(p => p.PostHashtags.Any(ph => ph.Hashtag.Name.ToLower() == content));
             }
             else
             {
-                // Nhánh tìm theo Nội dung Text
                 query = query.Where(p => EF.Functions.Like(p.Content, $"%{content}%"));
             }
 
-            // 3. Phân trang bằng Cursor
             if (request.Cursor.HasValue)
             {
                 query = query.Where(p => p.CreatedAt < request.Cursor.Value);
             }
 
-            // 4. Lấy dữ liệu và Map sang DTO
             var posts = await query
                 .OrderByDescending(p => p.CreatedAt)
                 .Take(request.PageSize + 1)
                 .ProjectTo<ResponsePostDto>(mapper.ConfigurationProvider, new { currentUserId = currentUserId })
                 .ToListAsync();
 
-            var hasNextPage = posts.Count > request.PageSize;
-            DateTime? nextCursor = null;
-
-            if(hasNextPage)
-            {
-                posts.RemoveAt(request.PageSize);
-                nextCursor = posts.Last().CreatedAt;
-            }
-
-            var pagedResponse = new CursorPagedResponse<ResponsePostDto>
-            {
-                Items = posts.Take(request.PageSize).ToList(),
-                NextCursor = nextCursor,
-                HasNextPage = hasNextPage
-            };
-            return pagedResponse;
+            return PaginationHelper.ToCursorPaged(posts, request.PageSize, p => p.CreatedAt);
         });
 
         if(cachedSearchResult == null)

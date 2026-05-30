@@ -23,7 +23,7 @@ public class UserProfile : Profile
             .ForMember(dest => dest.IsRequested, opt => opt.MapFrom(src => !string.IsNullOrEmpty(currentUserId) && src.Followers.Any(f => f.ObserverId == currentUserId && f.Status == FollowStatus.Pending)));
 
         CreateMap<Post, PostGridItemDto>()
-            .ForMember(dest => dest.ThumbnailUrl, opt => opt.MapFrom(src => src.MediaPorts.OrderBy(m => m.Id).Select(m => m.MediaUrl).FirstOrDefault() ?? ""))
+            .ForMember(dest => dest.ThumbnailUrl, opt => opt.MapFrom(src => src.MediaItems.OrderBy(m => m.Id).Select(m => m.MediaUrl).FirstOrDefault() ?? ""))
             .ForMember(dest => dest.LikeCount, opt => opt.MapFrom(src => src.Likes.Count()))
             .ForMember(dest => dest.CommentCount, opt => opt.MapFrom(src => src.Comments.Count()));
 

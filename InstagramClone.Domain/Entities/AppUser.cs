@@ -16,7 +16,7 @@ public class AppUser: IdentityUser
     public string? FullNameSearch { get; set; }
     public string? Bio { get; set; }
     public string? AvatarUrl { get; set; } = AppConstants.DefaultAvatarUrl;
-    public DateTime CreatedAt = DateTime.UtcNow;
+    public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public bool IsDeleted { get; set; } = false;
 
     //

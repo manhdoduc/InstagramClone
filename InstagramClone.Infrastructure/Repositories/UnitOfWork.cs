@@ -1,4 +1,4 @@
-using InstagramClone.Application.Interfaces;
+using InstagramClone.Application.Interfaces.Data;
 using InstagramClone.Application.Interfaces.Repositories;
 using InstagramClone.Domain.Entities;
 using InstagramClone.Infrastructure.Data;

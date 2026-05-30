@@ -1,4 +1,4 @@
-﻿using InstagramClone.Application.DTOs.Auth;
+using InstagramClone.Application.DTOs.Auth;
 using InstagramClone.Common.Results;
 using System;
 using System.Collections.Generic;
@@ -13,5 +13,6 @@ namespace InstagramClone.Application.Interfaces.Services
         Task<Result<TokenResponseDto>> LoginAsync(LoginUserDto loginDto);
         Task<Result<RegisteredUserDto>> RegisterAsync(RegisterUserDto registerUserDto);
         Task<Result<TokenResponseDto>> RefreshTokenAsync(TokenResponseDto tokenResponseDto);
+        Task<Result<bool>> LogoutAsync();
     }
 }

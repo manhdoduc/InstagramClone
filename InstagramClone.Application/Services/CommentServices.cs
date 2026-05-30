@@ -10,7 +10,7 @@ using InstagramClone.Application.Interfaces.Caching;
 
 using AutoMapper;
 using AutoMapper.QueryableExtensions;
-using InstagramClone.Application.Interfaces;
+using InstagramClone.Application.Helpers;
 
 namespace InstagramClone.Application.Services;
 public class CommentServices(IUnitOfWork unitOfWork, ICurrentUserService currentUser, ICacheService cache, IMapper mapper) : ICommentServices
@@ -33,7 +33,7 @@ public class CommentServices(IUnitOfWork unitOfWork, ICurrentUserService current
         unitOfWork.Comments.Add(comment);
         await unitOfWork.SaveChangesAsync();
 
-        var user = await unitOfWork.Users.Query().FirstAsync(u => u.Id == userId);
+        var user = await unitOfWork.Users.QueryNoTracking().FirstAsync(u => u.Id == userId);
 
         return Result<ResponseCommentDto>.Success(new ResponseCommentDto
         {
@@ -57,7 +57,7 @@ public class CommentServices(IUnitOfWork unitOfWork, ICurrentUserService current
         var cachedPost = await cache.GetOrCreateAsync<CursorPagedResponse<ResponseCommentDto>>(cacheKey, factory: async () =>
         {
             var query = unitOfWork.Comments
-            .Query()
+            .QueryNoTracking()
             .Where(c => c.PostId == postId);
 
             if (pagination.Cursor.HasValue)
@@ -69,23 +69,7 @@ public class CommentServices(IUnitOfWork unitOfWork, ICurrentUserService current
                 .ProjectTo<ResponseCommentDto>(mapper.ConfigurationProvider, new { currentUserId = userId })
                 .ToListAsync();
 
-            var hasNextPage = comments.Count > pagination.PageSize;
-            DateTime? nextCursor = null;
-
-            if (hasNextPage)
-            {
-                comments.RemoveAt(pagination.PageSize);
-                nextCursor = comments.Last().CreatedAt;
-            }
-
-            var cacheEntry = new CursorPagedResponse<ResponseCommentDto>
-            {
-                Items = comments,
-                HasNextPage = hasNextPage,
-                NextCursor = nextCursor
-            };
-
-            return cacheEntry;
+            return PaginationHelper.ToCursorPaged(comments, pagination.PageSize, c => c.CreatedAt);
         });
 
         return Result<CursorPagedResponse<ResponseCommentDto>>.Success(cachedPost);
@@ -161,7 +145,7 @@ public class CommentServices(IUnitOfWork unitOfWork, ICurrentUserService current
         }
         await unitOfWork.SaveChangesAsync();
 
-        var postId = await unitOfWork.Comments.Query()
+        var postId = await unitOfWork.Comments.QueryNoTracking()
             .Where(c => c.Id == commentId)
             .Select(c => c.PostId)
             .FirstAsync();

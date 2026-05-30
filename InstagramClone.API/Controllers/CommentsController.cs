@@ -1,7 +1,6 @@
 using InstagramClone.Application.DTOs.Common;
 using InstagramClone.Application.DTOs.post;
 using InstagramClone.Application.Interfaces.Services;
-using InstagramClone.Infrastructure.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;

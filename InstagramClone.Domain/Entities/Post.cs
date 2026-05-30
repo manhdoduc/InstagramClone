@@ -16,7 +16,7 @@ namespace InstagramClone.Domain.Entities
         public AppUser User { get; set; } = null!;
 
         // quan hệ 1-n với PostMedia
-        public ICollection<PostMedia> MediaPorts { get; set; } = [];
+        public ICollection<PostMedia> MediaItems { get; set; } = [];
 
         // (Để dành cho Phase 3)
         public ICollection<Like> Likes { get; set; } = [];

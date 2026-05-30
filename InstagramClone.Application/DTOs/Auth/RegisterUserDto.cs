@@ -14,5 +14,4 @@ public class RegisterUserDto
     public string FirstName { get; set; } = string.Empty;
     public string LastName { get; set; } = string.Empty;
     public string NickName {  get; set; } = string.Empty;
-    public string Role { get; set; } = RoleNames.User; 
 }
