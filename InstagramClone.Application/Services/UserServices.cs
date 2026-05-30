@@ -1,6 +1,7 @@
 using AutoMapper;
 using AutoMapper.QueryableExtensions;
 using InstagramClone.Application.DTOs.InfoUser;
+using InstagramClone.Application.Interfaces;
 using InstagramClone.Application.Interfaces.Caching;
 using InstagramClone.Application.Interfaces.Data;
 using InstagramClone.Application.Interfaces.Services;

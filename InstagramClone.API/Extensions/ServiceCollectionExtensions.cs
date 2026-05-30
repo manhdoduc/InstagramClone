@@ -1,6 +1,7 @@
 using FluentValidation;
 using FluentValidation.AspNetCore;
 using InstagramClone.API.Filters;
+using InstagramClone.Application.Interfaces;
 using InstagramClone.Application.Interfaces.Caching;
 using InstagramClone.Application.Interfaces.Chats;
 using InstagramClone.Application.Interfaces.Data;

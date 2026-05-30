@@ -2,6 +2,7 @@ using InstagramClone.Application.DTOs.ChatDto;
 using InstagramClone.Application.DTOs.Chats;
 using InstagramClone.Application.DTOs.Common;
 using InstagramClone.Application.DTOs.post;
+using InstagramClone.Application.Interfaces;
 using InstagramClone.Application.Interfaces.Caching;
 using InstagramClone.Application.Interfaces.Chats;
 using InstagramClone.Application.Interfaces.Data;

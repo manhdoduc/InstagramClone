@@ -1,18 +1,17 @@
-using InstagramClone.Application.DTOs.InfoUser;
 using InstagramClone.Application.DTOs.Common;
+using InstagramClone.Application.DTOs.InfoUser;
+using InstagramClone.Application.DTOs.post;
+using InstagramClone.Application.Helpers;
+using InstagramClone.Application.Interfaces;
+using InstagramClone.Application.Interfaces.Caching;
+using InstagramClone.Application.Interfaces.Data;
 using InstagramClone.Application.Interfaces.Services;
 using InstagramClone.Common.Constants;
 using InstagramClone.Common.Results;
 using InstagramClone.Domain.Entities;
 using InstagramClone.Domain.Enums;
-using InstagramClone.Application.Interfaces.Data;
-using Microsoft.EntityFrameworkCore;
-using InstagramClone.Application.Interfaces.Caching;
-
 using AutoMapper;
-using AutoMapper.QueryableExtensions;
-using InstagramClone.Application.Helpers;
-using InstagramClone.Application.DTOs.post;
+using Microsoft.EntityFrameworkCore;
 
 namespace InstagramClone.Application.Services
 {

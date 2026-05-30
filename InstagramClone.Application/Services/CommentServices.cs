@@ -1,5 +1,6 @@
 using InstagramClone.Application.DTOs.Common;
 using InstagramClone.Application.DTOs.post;
+using InstagramClone.Application.Interfaces;
 using InstagramClone.Application.Interfaces.Services;
 using InstagramClone.Common.Constants;
 using InstagramClone.Common.Results;
