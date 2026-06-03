@@ -365,7 +365,6 @@ FodyWeavers.xsd
 # Tránh lộ thông tin cấu hình local
 appsettings.Development.json
 appsettings.Local.json
-.env
 
 # Chặn ảnh upload của user
 InstagramClone.API/wwwroot/media/*
@@ -374,6 +373,6 @@ InstagramClone.API/wwwroot/media/*
 *.key
 *.pfx
 
-# Bỏ qua toàn bộ thư mục k8s (không đẩy lên git)
-k8s/
+# K8s Secret files (chứa DB password, JWT key)
+/k8s
 
