@@ -3,8 +3,8 @@ services:
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ASPNETCORE_URLS=http://*:5063
-      - ConnectionStrings__DefaultConnection=Server=mssql;Database=MiniInstaDb;User ID=sa;Password=033355@Manh;Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=True
-      - JwtSettings__Key=YourSuperSecretKeyForJwtTokens123!@#
+      - ConnectionStrings__DefaultConnection=Server=mssql;Database=MiniInstaDb;User ID=sa;Password=${DB_PASSWORD};Encrypt=True;TrustServerCertificate=True;MultipleActiveResultSets=True
+      - JwtSettings__Key=${JWT_KEY}
     volumes:
       - ${APPDATA}/Microsoft/UserSecrets:/home/app/.microsoft/usersecrets:ro
       - ${APPDATA}/Microsoft/UserSecrets:/root/.microsoft/usersecrets:ro

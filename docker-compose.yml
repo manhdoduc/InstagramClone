@@ -19,7 +19,7 @@ services:
     hostname: mssql
     environment:
       - ACCEPT_EULA=Y
-      - SA_PASSWORD=033355@Manh
+      - SA_PASSWORD=${DB_PASSWORD}
       - MSSQL_DATA_DIR=/var/opt/sqlserver/data
       - MSSQL_LOG_DIR=/var/opt/sqlserver/log
       - MSSQL_BACKUP_DIR=/var/opt/sqlserver/backup 
