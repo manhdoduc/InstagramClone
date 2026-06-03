@@ -1,7 +1,8 @@
-﻿using InstagramClone.Application.DTOs.ChatDto;
-using InstagramClone.Application.DTOs.Chats;
-using InstagramClone.Application.DTOs.Common;
-using InstagramClone.Application.DTOs.post;
+using InstagramClone.Application.Features.Chat.DTOs;
+using InstagramClone.Application.Features.Chat.DTOs;
+using InstagramClone.Application.Common.DTOs;
+using InstagramClone.Application.Features.Posts.DTOs;
+using InstagramClone.Application.Common.DTOs;
 using InstagramClone.Common.Results;
 using InstagramClone.Domain.Entities;
 using Microsoft.AspNetCore.Http;
@@ -26,16 +27,16 @@ namespace InstagramClone.Application.Interfaces.Chats
 
  
 
-        // Lấy tin nhắn của một phòng chat với phân trang
+        // L?y tin nh?n c?a m?t ph�ng chat v?i ph�n trang
         Task<Result<CursorPagedResponse<MessageDto>>> GetMessagesRoomAsync(Guid chatRoomId, CursorPaginationRequest messagePagi);
 
-        // lấy danh sách phòng chat của người dùng với phân trang
+        // l?y danh s�ch ph�ng chat c?a ngu?i d�ng v?i ph�n trang
         Task<Result<List<ChatRoomDto>>> GetUserChatRoomsAsync();
 
-        // đánh dấu tất cả tin nhắn trong phòng chat là đã đọc
+        // d�nh d?u t?t c? tin nh?n trong ph�ng chat l� d� d?c
         Task<Result<bool>> MarkRoomAsReadAsync(Guid chatRoomId);
 
-        // gửi ảnh 
+        // g?i ?nh 
         Task<Result<MessageDto>> UploadMessageMediaAsync(IFormFile file, Guid chatRoomId);
         Task<Result<MessageDto>> CreateMessageAsync(SendMessageDto request);
 

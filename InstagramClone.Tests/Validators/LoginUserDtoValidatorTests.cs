@@ -1,6 +1,7 @@
 using FluentAssertions;
-using InstagramClone.Application.DTOs.Auth;
-using InstagramClone.Application.Validators;
+using InstagramClone.Application.Features.Auth.DTOs;
+using InstagramClone.Application.Features.Auth.Validators;
+using InstagramClone.Application.Features.Posts.Validators;
 using System.ComponentModel.DataAnnotations;
 
 namespace InstagramClone.Tests.Validators

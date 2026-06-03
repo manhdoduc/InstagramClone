@@ -1,6 +1,8 @@
 using FluentAssertions;
-using InstagramClone.Application.DTOs.post;
-using InstagramClone.Application.Validators;
+using InstagramClone.Application.Features.Posts.DTOs;
+using InstagramClone.Application.Common.DTOs;
+using InstagramClone.Application.Features.Auth.Validators;
+using InstagramClone.Application.Features.Posts.Validators;
 using Microsoft.AspNetCore.Http;
 using Moq;
 using System.Collections.Generic;

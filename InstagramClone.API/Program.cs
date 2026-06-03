@@ -1,34 +1,13 @@
-using FluentValidation;
-using FluentValidation.AspNetCore;
 using HealthChecks.UI.Client;
+using InstagramClone.API.Extensions;
 using InstagramClone.API.Middlewares;
-using InstagramClone.Application.Interfaces.Caching;
-using InstagramClone.Application.Interfaces.Chats;
-using InstagramClone.Application.Interfaces.Data;
-using InstagramClone.Application.Interfaces.Services;
-using InstagramClone.Application.Services;
-using InstagramClone.Application.Validators;
-using InstagramClone.Common.Models.Config;
-using InstagramClone.Domain.Entities;
-using InstagramClone.Infrastructure.Data;
-using InstagramClone.Infrastructure.Hubs;
-using InstagramClone.Infrastructure.Services;
-using Microsoft.AspNetCore.Authentication.JwtBearer;
+using InstagramClone.Infrastructure.Persistence;
+using InstagramClone.Infrastructure.SignalR;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpOverrides;
-using Microsoft.AspNetCore.Identity;
-using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Diagnostics.HealthChecks;
-using Microsoft.IdentityModel.Tokens;
-using Microsoft.OpenApi.Models;
 using Serilog;
 using Serilog.Events;
-using Swashbuckle.AspNetCore.Filters;
-using System.Reflection;
-using System.Text;
-using System.Threading.RateLimiting;
-using InstagramClone.API.Extensions;
 
 Log.Logger = new LoggerConfiguration()
     .MinimumLevel.Information()
@@ -177,27 +156,26 @@ try
 
     Log.Information("Application started successfully.");
 
-    //using (var scope = app.Services.CreateScope())
-    //{
-    //    var services = scope.ServiceProvider;
-    //    try
-    //    {
-    //        var context = services.GetRequiredService<AppDbContext>();
-    //        if (context.Database.GetPendingMigrations().Any())
-    //        {
-    //            Log.Information("Applying pending migrations...");
-    //            context.Database.Migrate();
-    //            Log.Information("Migrations applied successfully.");
-    //        }
-    //    }
-    //    catch (Exception ex)
-    //    {
-    //        Log.Error(ex, "An error occurred while migrating the database.");
-    //    }
-    //} dung docker database image đã tự động apply migration khi khởi động, nên không cần đoạn code này nữa. Nếu muốn dùng thì phải đảm bảo database đã sẵn sàng trước khi app cố gắng kết nối và apply migration, nếu không sẽ gặp lỗi.
-
-    app.Run();
-
+    using (var scope = app.Services.CreateScope())
+    {
+        var services = scope.ServiceProvider;
+        try
+        {
+            var context = services.GetRequiredService<AppDbContext>();
+            if (context.Database.GetPendingMigrations().Any())
+            {
+                Log.Information("Applying pending migrations...");
+                context.Database.Migrate();
+                Log.Information("Migrations applied successfully.");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex, "An error occurred while migrating the database.");
+        } 
+        
+        app.Run();
+    }
 }
 catch (Exception ex)
 {

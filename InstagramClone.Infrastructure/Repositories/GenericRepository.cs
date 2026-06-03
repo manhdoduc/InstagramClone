@@ -1,6 +1,6 @@
 using System.Linq.Expressions;
 using InstagramClone.Application.Interfaces.Repositories;
-using InstagramClone.Infrastructure.Data;
+using InstagramClone.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 
 namespace InstagramClone.Infrastructure.Repositories;

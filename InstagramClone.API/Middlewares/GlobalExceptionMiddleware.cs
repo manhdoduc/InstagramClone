@@ -1,9 +1,6 @@
-using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Serilog;
-using System;
 using System.Text.Json;
-using System.Threading.Tasks;
 
 namespace InstagramClone.API.Middlewares
 {

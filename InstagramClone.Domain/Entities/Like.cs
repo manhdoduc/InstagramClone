@@ -1,4 +1,4 @@
-﻿using InstagramClone.Domain.Common;
+using InstagramClone.Domain.Common;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -9,10 +9,18 @@ namespace InstagramClone.Domain.Entities
 {
     public class Like : BaseEntity
     {
-        public string UserId { get; set; } = string.Empty;
-        public AppUser AppUser { get; set; } = null!;
+        public Guid UserId { get; private set; }
+        public AppUser User { get; private set; } = null!;
 
-        public Guid PostId { get; set; }
-        public Post Post { get; set; } = null!;
+        public Guid PostId { get; private set; }
+        public Post Post { get; private set; } = null!;
+
+        protected Like() { }
+
+        public Like(Guid userId, Guid postId)
+        {
+            UserId = userId;
+            PostId = postId;
+        }
     }
 }

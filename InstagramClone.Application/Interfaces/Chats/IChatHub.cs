@@ -1,4 +1,4 @@
-﻿using InstagramClone.Application.DTOs.Chats;
+using InstagramClone.Application.Features.Chat.DTOs;
 using InstagramClone.Domain.Entities;
 using System;
 using System.Collections.Generic;

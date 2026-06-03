@@ -1,14 +1,18 @@
 using FluentValidation;
 using FluentValidation.AspNetCore;
+using InstagramClone.Application.Features.Posts.Services;
+using InstagramClone.Application.Features.Comments.Services;
+using InstagramClone.Application.Features.Chat.Services;
+using InstagramClone.Application.Features.Follows.Services;
+using InstagramClone.Application.Features.Posts.Validators;
 using InstagramClone.Application.Interfaces.Caching;
 using InstagramClone.Application.Interfaces.Chats;
 using InstagramClone.Application.Interfaces.Data;
 using InstagramClone.Application.Interfaces.Services;
-using InstagramClone.Application.Services;
-using InstagramClone.Application.Validators;
 using InstagramClone.Common.Models.Config;
-using InstagramClone.Domain.Entities;
-using InstagramClone.Infrastructure.Data;
+using InstagramClone.Infrastructure.Caching;
+using InstagramClone.Infrastructure.Identity;
+using InstagramClone.Infrastructure.Persistence;
 using InstagramClone.Infrastructure.Repositories;
 using InstagramClone.Infrastructure.Services;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -30,7 +34,7 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddApplicationServices(this IServiceCollection services)
     {
         services.AddHttpContextAccessor();
-        
+
         // Application layer services
         services.AddScoped<IAuthServices, AuthServices>();
         services.AddScoped<IUserServices, UserServices>();
@@ -38,12 +42,12 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICommentServices, CommentServices>();
         services.AddScoped<IFollowService, FollowServices>();
         services.AddScoped<IChatService, ChatServices>();
-        
+
         services.AddAutoMapper(cfg => cfg.AddMaps(AppDomain.CurrentDomain.GetAssemblies()));
-        
+
         services.AddValidatorsFromAssemblyContaining<CreatePostDtoValidator>();
         services.AddFluentValidationAutoValidation();
-        
+
         return services;
     }
 
@@ -55,12 +59,16 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IChatNotificationService, ChatNotificationService>();
         services.AddScoped<ICacheService, MemoryCacheService>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
-        
+
         // Database
         var connectionString = configuration.GetConnectionString("DefaultConnection");
+        services.AddSingleton<InstagramClone.Infrastructure.Persistence.Interceptors.AuditableEntityInterceptor>();
         services.AddScoped<IApplicationDbContext, AppDbContext>();
-        services.AddDbContextPool<AppDbContext>(options =>
+        services.AddDbContextPool<AppDbContext>((sp, options) =>
         {
+            var auditableInterceptor = sp.GetRequiredService<InstagramClone.Infrastructure.Persistence.Interceptors.AuditableEntityInterceptor>();
+            options.AddInterceptors(auditableInterceptor);
+
             options.UseSqlServer(connectionString, sqlOptions =>
             {
                 sqlOptions.CommandTimeout(30);
@@ -78,7 +86,8 @@ public static class ServiceCollectionExtensions
 
     public static IServiceCollection AddIdentityAndAuthServices(this IServiceCollection services, IConfiguration configuration)
     {
-        services.AddIdentity<AppUser, IdentityRole>(options => {
+        services.AddIdentity<ApplicationUser, IdentityRole<Guid>>(options =>
+        {
             options.Password.RequireDigit = true;
             options.Password.RequiredLength = 6;
             options.User.RequireUniqueEmail = true;
@@ -89,10 +98,10 @@ public static class ServiceCollectionExtensions
         services.Configure<JwtSettings>(configuration.GetSection("JwtSettings"));
         var jwtSettings = configuration.GetSection("JwtSettings").Get<JwtSettings>() ?? new JwtSettings();
 
-        if(jwtSettings == null || string.IsNullOrEmpty(jwtSettings.Key))
+        if (jwtSettings == null || string.IsNullOrEmpty(jwtSettings.Key))
         {
             Log.Fatal("JWT settings are not configured properly.");
-            throw new Exception("JWT settings are not configured properly."); 
+            throw new Exception("JWT settings are not configured properly.");
         }
 
         services.AddAuthentication(options =>
@@ -155,7 +164,7 @@ public static class ServiceCollectionExtensions
             }
 
             options.EnableAnnotations();
-            
+
             options.AddSecurityDefinition("Bearer", new OpenApiSecurityScheme
             {
                 Description = "JWT Authorization header using the Bearer scheme. Enter 'Bearer' [space] and then your token in the text input below.",

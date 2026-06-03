@@ -1,7 +1,12 @@
 using FluentAssertions;
-using InstagramClone.Application.DTOs.Auth;
+using InstagramClone.Application.Features.Auth.DTOs;
 using InstagramClone.Application.Interfaces.Services;
-using InstagramClone.Application.Services;
+using InstagramClone.Infrastructure.Services;
+using InstagramClone.Application.Features.Chat.Services;
+using InstagramClone.Application.Features.Comments.Services;
+using InstagramClone.Application.Features.Follows.Services;
+using InstagramClone.Application.Features.Posts.Services;
+using InstagramClone.Infrastructure.Services;
 using InstagramClone.Common.Constants;
 using InstagramClone.Common.Models.Config;
 using InstagramClone.Domain.Entities;

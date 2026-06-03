@@ -7,7 +7,7 @@ namespace InstagramClone.Application.Interfaces.Data;
 
 public interface IApplicationDbContext
 {
-    DbSet<AppUser> Users { get; set; }
+    DbSet<AppUser> AppUsers { get; set; }
     DbSet<Post> Posts { get; set; }
     DbSet<PostMedia> PostMedias { get; set; }
     DbSet<Comment> Comments { get; set; }

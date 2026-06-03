@@ -1,4 +1,4 @@
-using InstagramClone.Application.DTOs.Auth;
+using InstagramClone.Application.Features.Auth.DTOs;
 using InstagramClone.Application.Interfaces.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
@@ -6,12 +6,12 @@ using Microsoft.AspNetCore.RateLimiting;
 
 namespace InstagramClone.API.Controllers;
 
-[Route("api/auth")]
+[Route("api/[controller]")]
 [ApiController]
-[AllowAnonymous]
-[EnableRateLimiting("LoginLimit")] // Áp dụng cho toàn bộ api/auth
+[EnableRateLimiting("LoginLimit")]
 public class AuthController(IAuthServices userServices) : BaseApiController
 {
+    [AllowAnonymous]
     [HttpPost("register")]
     public async Task<ActionResult<RegisteredUserDto>> Register([FromBody] RegisterUserDto registerUserDto)
     {
@@ -19,6 +19,7 @@ public class AuthController(IAuthServices userServices) : BaseApiController
         return ToActionResult(result);
     }
 
+    [AllowAnonymous]
     [HttpPost("login")]
     public async Task<ActionResult<TokenResponseDto>> Login([FromBody] LoginUserDto loginDto)
     {
@@ -26,8 +27,9 @@ public class AuthController(IAuthServices userServices) : BaseApiController
         return ToActionResult(result);
     }
 
+    [AllowAnonymous] // Thường Refresh Token không cần header Authorize vì bản thân nó đã gửi token cũ lên rồi
     [HttpPost("refresh-token")]
-    public async Task<ActionResult<TokenResponseDto>> RefreshToken(TokenResponseDto tokenResponseDto)
+    public async Task<ActionResult<TokenResponseDto>> RefreshToken([FromBody] TokenResponseDto tokenResponseDto) // Nên thêm [FromBody] để đồng bộ
     {
         var result = await userServices.RefreshTokenAsync(tokenResponseDto);
         return ToActionResult(result);
@@ -41,4 +43,3 @@ public class AuthController(IAuthServices userServices) : BaseApiController
         return ToActionResult(result);
     }
 }
-

@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Mvc;
 using Serilog;
 
 namespace InstagramClone.API.Controllers;
+
 public abstract class BaseApiController : ControllerBase
 {
     protected ActionResult<T> ToActionResult<T>(Result<T> result, string successMessage = "Success")
@@ -33,7 +34,7 @@ public abstract class BaseApiController : ControllerBase
                 statusCode: StatusCodes.Status404NotFound,
                 title: "Resource not found",
                 detail: errorDetails
-               
+
             ),
             ErrorCodes.Validation => ValidationProblem(
                 title: "Validation failed",

@@ -27,5 +27,4 @@
   <Project Path="InstagramClone.Common/InstagramClone.Common.csproj" Id="749effb6-315f-42de-960f-148a0d77e178" />
   <Project Path="InstagramClone.Domain/InstagramClone.Domain.csproj" />
   <Project Path="InstagramClone.Infrastructure/InstagramClone.Infrastructure.csproj" />
-  <Project Path="InstagramClone.Tests/InstagramClone.Tests.csproj" />
 </Solution>

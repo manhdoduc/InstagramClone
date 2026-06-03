@@ -14,7 +14,7 @@ services:
     networks:
       - app-network
   mssql:
-    image: "domanh114/conference-insta-db"
+    image: mcr.microsoft.com/mssql/server:2022-latest
     container_name: sql
     hostname: mssql
     environment:
@@ -59,3 +59,9 @@ services:
 networks:
   app-network:
     driver: bridge
+
+volumes:
+  sqlsystem:
+  sqldata:
+  sqllog:
+  sqlbackup:

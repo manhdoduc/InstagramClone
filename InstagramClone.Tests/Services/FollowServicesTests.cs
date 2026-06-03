@@ -4,15 +4,20 @@ using InstagramClone.Application.Interfaces.Caching;
 using InstagramClone.Application.Interfaces.Data;
 using InstagramClone.Application.Interfaces.Repositories;
 using InstagramClone.Application.Interfaces.Services;
-using InstagramClone.Application.Services;
+using InstagramClone.Infrastructure.Services;
+using InstagramClone.Application.Features.Chat.Services;
+using InstagramClone.Application.Features.Comments.Services;
+using InstagramClone.Application.Features.Follows.Services;
+using InstagramClone.Application.Features.Posts.Services;
+using InstagramClone.Infrastructure.Services;
 using InstagramClone.Common.Constants;
 using InstagramClone.Domain.Entities;
 using InstagramClone.Domain.Enums;
 using Moq;
 using System.Linq.Expressions;
 using AutoMapper;
-using InstagramClone.Application.DTOs.Common;
-using InstagramClone.Application.DTOs.InfoUser;
+using InstagramClone.Application.Common.DTOs;
+using InstagramClone.Application.Features.Users.DTOs;
 using MockQueryable.Moq;
 using Microsoft.EntityFrameworkCore;
 namespace InstagramClone.Tests.Services
@@ -68,15 +73,15 @@ namespace InstagramClone.Tests.Services
         public async Task SendFollowRequestAsync_TargetNotFound_ReturnsNotFound()
         {
             // Arrange
-            var observerId = "user-1";
-            var targetId = "user-2";
-            _mockCurrentUser.Setup(x => x.UserId).Returns(observerId);
+            var FollowerId = "user-1";
+            var FolloweeId = "user-2";
+            _mockCurrentUser.Setup(x => x.UserId).Returns(FollowerId);
             
             var users = new List<AppUser>().BuildMockDbSet();
             _mockUserRepo.Setup(x => x.QueryNoTracking()).Returns(users.Object);
 
             // Act
-            var result = await _followService.SendFollowRequestAsync(targetId);
+            var result = await _followService.SendFollowRequestAsync(FolloweeId);
 
             // Assert
             result.IsSuccess.Should().BeFalse();
@@ -87,13 +92,13 @@ namespace InstagramClone.Tests.Services
         public async Task SendFollowRequestAsync_PublicAccount_ReturnsSuccessAndAccepted()
         {
             // Arrange
-            var observerId = "user-1";
-            var targetId = "user-2";
-            _mockCurrentUser.Setup(x => x.UserId).Returns(observerId);
+            var FollowerId = "user-1";
+            var FolloweeId = "user-2";
+            _mockCurrentUser.Setup(x => x.UserId).Returns(FollowerId);
 
             var users = new List<AppUser> 
             { 
-                new AppUser { Id = targetId, IsPrivateAccount = false } 
+                new AppUser { Id = FolloweeId, IsPrivateAccount = false } 
             }.BuildMockDbSet();
             
             _mockUserRepo.Setup(x => x.QueryNoTracking()).Returns(users.Object);
@@ -103,25 +108,25 @@ namespace InstagramClone.Tests.Services
             _mockUnitOfWork.Setup(x => x.SaveChangesAsync()).ReturnsAsync(1);
 
             // Act
-            var result = await _followService.SendFollowRequestAsync(targetId);
+            var result = await _followService.SendFollowRequestAsync(FolloweeId);
 
             // Assert
             result.IsSuccess.Should().BeTrue();
             result.Value.Should().Be(FollowCodes.Followed);
-            _mockFollowRepo.Verify(x => x.Add(It.Is<Follow>(f => f.ObserverId == observerId && f.TargetId == targetId && f.Status == FollowStatus.Accepted)), Times.Once);
+            _mockFollowRepo.Verify(x => x.Add(It.Is<Follow>(f => f.FollowerId == FollowerId && f.FolloweeId == FolloweeId && f.Status == FollowStatus.Accepted)), Times.Once);
         }
 
         [Fact]
         public async Task SendFollowRequestAsync_PrivateAccount_ReturnsSuccessAndPending()
         {
             // Arrange
-            var observerId = "user-1";
-            var targetId = "user-2";
-            _mockCurrentUser.Setup(x => x.UserId).Returns(observerId);
+            var FollowerId = "user-1";
+            var FolloweeId = "user-2";
+            _mockCurrentUser.Setup(x => x.UserId).Returns(FollowerId);
 
             var users = new List<AppUser> 
             { 
-                new AppUser { Id = targetId, IsPrivateAccount = true } 
+                new AppUser { Id = FolloweeId, IsPrivateAccount = true } 
             }.BuildMockDbSet();
             
             _mockUserRepo.Setup(x => x.QueryNoTracking()).Returns(users.Object);
@@ -131,12 +136,12 @@ namespace InstagramClone.Tests.Services
             _mockUnitOfWork.Setup(x => x.SaveChangesAsync()).ReturnsAsync(1);
 
             // Act
-            var result = await _followService.SendFollowRequestAsync(targetId);
+            var result = await _followService.SendFollowRequestAsync(FolloweeId);
 
             // Assert
             result.IsSuccess.Should().BeTrue();
             result.Value.Should().Be(FollowCodes.FollowRequestSent);
-            _mockFollowRepo.Verify(x => x.Add(It.Is<Follow>(f => f.ObserverId == observerId && f.TargetId == targetId && f.Status == FollowStatus.Pending)), Times.Once);
+            _mockFollowRepo.Verify(x => x.Add(It.Is<Follow>(f => f.FollowerId == FollowerId && f.FolloweeId == FolloweeId && f.Status == FollowStatus.Pending)), Times.Once);
         }
     }
 }

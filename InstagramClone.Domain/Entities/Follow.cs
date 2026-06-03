@@ -1,4 +1,4 @@
-﻿using InstagramClone.Domain.Common;
+using InstagramClone.Domain.Common;
 using InstagramClone.Domain.Enums;
 using System;
 using System.Collections.Generic;
@@ -9,14 +9,28 @@ using System.Threading.Tasks;
 namespace InstagramClone.Domain.Entities;
 public class Follow : BaseEntity
 {
-    // ID của người đi follow
-    public string ObserverId { get; set; } = string.Empty;
-    public virtual AppUser Observer { get; set; } = null!;
+    // ID c?a ngu?i di follow
+    public Guid FollowerId { get; private set; }
+    public virtual AppUser Follower { get; private set; } = null!;
 
-    // ID của người được follow
-    public string TargetId { get; set; } = string.Empty;
-    public virtual AppUser Target { get; set; } = null!;
+    // ID c?a ngu?i du?c follow
+    public Guid FolloweeId { get; private set; }
+    public virtual AppUser Followee { get; private set; } = null!;
 
-    // Trạng thái của yêu cầu follow (Pending, Accepted, Rejected)
-    public FollowStatus Status { get; set; } = FollowStatus.Pending;
+    // Tr?ng thái c?a yêu c?u follow (Pending, Accepted, Rejected)
+    public FollowStatus Status { get; private set; } = FollowStatus.Pending;
+
+    protected Follow() { }
+
+    public Follow(Guid followerId, Guid followeeId, FollowStatus status = FollowStatus.Pending)
+    {
+        FollowerId = followerId;
+        FolloweeId = followeeId;
+        Status = status;
+    }
+
+    public void UpdateStatus(FollowStatus status)
+    {
+        Status = status;
+    }
 }

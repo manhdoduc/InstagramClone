@@ -1,4 +1,4 @@
-using InstagramClone.Application.DTOs.Auth;
+using InstagramClone.Application.Features.Auth.DTOs;
 using InstagramClone.Common.Results;
 using System;
 using System.Collections.Generic;

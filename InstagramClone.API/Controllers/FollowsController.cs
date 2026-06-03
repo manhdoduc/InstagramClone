@@ -1,56 +1,70 @@
-using InstagramClone.Application.DTOs.InfoUser;
+using InstagramClone.Application.Common.DTOs;
+using InstagramClone.Application.Features.Users.DTOs;
 using InstagramClone.Application.Interfaces.Services;
-using InstagramClone.Application.DTOs.Common;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
-using InstagramClone.Application.DTOs.post;
 
 namespace InstagramClone.API.Controllers
 {
-    [Route("api/follows")]
     [ApiController]
     [Authorize]
     public class FollowsController(IFollowService followService) : BaseApiController
     {
-        // Endpoint: POST api/follows/{targetId}
-        [HttpPost("{targetId}")]
-        public async Task<ActionResult<string>> ToggleFollow(string targetId)
-        {
-            var result = await followService.SendFollowRequestAsync(targetId);
+        #region Thao tác Follow (Yêu cầu / Hủy yêu cầu)
 
-            // Tận dụng BaseApiController để map Result ra HTTP Status Code chuẩn xác
+        // POST: api/users/{targetUserId}/follow
+        [HttpPost("api/users/{targetUserId}/follow")]
+        public async Task<ActionResult<string>> ToggleFollow([FromRoute] string targetUserId)
+        {
+            var result = await followService.SendFollowRequestAsync(targetUserId);
             return ToActionResult(result);
         }
 
-        // api/follows/{observerId}/accept
-        [HttpPut("{observerId}/accept")]
-        public async Task<ActionResult<bool>> AcceptFollowRequest(string observerId)
+        #endregion
+
+        #region Quản lý Lời mời theo dõi (Follow Requests)
+        // Gom các hành động xử lý lời mời nhận được vào route "requests" công tâm và rõ nghĩa
+
+        // PUT: api/follows/requests/{followerId}/accept
+        [HttpPut("api/follows/requests/{followerId}/accept")]
+        public async Task<ActionResult<bool>> AcceptFollowRequest([FromRoute] string followerId)
         {
-            var result = await followService.AcceptFollowRequestAsync(observerId);
+            var result = await followService.AcceptFollowRequestAsync(followerId);
             return ToActionResult(result);
         }
 
-        // api/follows/{observerId}/decline
-        [HttpDelete("{observerId}/decline")]
-        public async Task<ActionResult<bool>> DeclineFollowRequest(string observerId)
+        // PUT: api/follows/requests/{followerId}/decline
+        [HttpPut("api/follows/requests/{followerId}/decline")]
+        public async Task<ActionResult<bool>> DeclineFollowRequest([FromRoute] string followerId)
         {
-            var result = await followService.DeclineFollowRequestAsync(observerId);
+            var result = await followService.DeclineFollowRequestAsync(followerId);
             return ToActionResult(result);
         }
 
-        //
-        [HttpGet("{targetId}/followers")]
-        public async Task<ActionResult<CursorPagedResponse<UserSummaryDto>>> GetFollowers(string targetId, [FromQuery] CursorPaginationRequest request)
+        #endregion
+
+        #region Truy vấn danh sách Followers / Following
+
+        // GET: api/users/{userId}/followers
+        [HttpGet("api/users/{userId}/followers")]
+        public async Task<ActionResult<CursorPagedResponse<UserSummaryDto>>> GetFollowers(
+            [FromRoute] string userId,
+            [FromQuery] CursorPaginationRequest request)
         {
-            var result = await followService.GetFollowerAsync(targetId, request);
+            var result = await followService.GetFollowerAsync(userId, request);
             return ToActionResult(result);
         }
 
-        [HttpGet("{targetId}/following")]
-        public async Task<ActionResult<CursorPagedResponse<UserSummaryDto>>> GetFollowing(string targetId, [FromQuery] CursorPaginationRequest request)
+        // GET: api/users/{userId}/following
+        [HttpGet("api/users/{userId}/following")]
+        public async Task<ActionResult<CursorPagedResponse<UserSummaryDto>>> GetFollowing(
+            [FromRoute] string userId,
+            [FromQuery] CursorPaginationRequest request)
         {
-            var result = await followService.GetFollowingAsync(targetId, request);
+            var result = await followService.GetFollowingAsync(userId, request);
             return ToActionResult(result);
         }
+
+        #endregion
     }
 }

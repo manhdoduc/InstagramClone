@@ -1,4 +1,4 @@
-﻿using InstagramClone.Application.DTOs.InfoUser;
+using InstagramClone.Application.Features.Users.DTOs;
 using InstagramClone.Common.Results;
 using Microsoft.AspNetCore.Http;
 using System;

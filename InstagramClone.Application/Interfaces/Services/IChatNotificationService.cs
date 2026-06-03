@@ -1,4 +1,4 @@
-using InstagramClone.Application.DTOs.Chats;
+using InstagramClone.Application.Features.Chat.DTOs;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;

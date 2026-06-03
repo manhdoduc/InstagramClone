@@ -1,5 +1,6 @@
-﻿using InstagramClone.Application.DTOs.Common;
-using InstagramClone.Application.DTOs.post;
+using InstagramClone.Application.Common.DTOs;
+using InstagramClone.Application.Features.Posts.DTOs;
+using InstagramClone.Application.Common.DTOs;
 using InstagramClone.Common.Results;
 using System;
 using System.Collections.Generic;

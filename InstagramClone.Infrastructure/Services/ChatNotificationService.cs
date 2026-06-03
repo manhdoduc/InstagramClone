@@ -1,7 +1,7 @@
-using InstagramClone.Application.DTOs.Chats;
+using InstagramClone.Application.Features.Chat.DTOs;
 using InstagramClone.Application.Interfaces.Chats;
 using InstagramClone.Application.Interfaces.Services;
-using InstagramClone.Infrastructure.Hubs;
+using InstagramClone.Infrastructure.SignalR;
 using Microsoft.AspNetCore.SignalR;
 using System;
 using System.Collections.Generic;
