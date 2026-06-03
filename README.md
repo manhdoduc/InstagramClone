@@ -32,27 +32,31 @@ This project is structured using **Clean Architecture** and incorporates the **R
 
 ## ⚙️ Local Development Setup
 
+The application is containerized and can be easily run using Docker Compose.
+
 1. **Clone the repository**
    ```bash
    git clone https://github.com/manhdoduc/InstagramClone.git
    cd InstagramClone
    ```
 
-2. **Configuration**
-   - Copy `InstagramClone.API/appsettings.example.json` to `InstagramClone.API/appsettings.Development.json`.
-   - Update the `DefaultConnection` string with your local SQL Server details.
-   - Update the `JwtSettings:Key` with a strong secret key.
+2. **Run with Docker Compose**
+   Build and start all services (API, SQL Server, Seq Logs, Nginx) in detached mode:
+   ```bash
+   docker-compose up -d --build
+   ```
 
 3. **Database Migration**
+   The database connection is automatically configured to point to the SQL Server container. Apply the migrations to create the database schema:
    ```bash
    dotnet ef database update --project InstagramClone.Infrastructure --startup-project InstagramClone.API
    ```
+   *(Ensure you have the .NET EF tools installed: `dotnet tool install --global dotnet-ef`)*
 
-4. **Run the Application**
-   ```bash
-   cd InstagramClone.API
-   dotnet run
-   ```
+4. **Access the Services**
+   - **API (HTTP)**: `http://localhost:5063`
+   - **Nginx (HTTPS)**: `https://localhost:44391`
+   - **Seq Logs**: `http://localhost:5342`
 
 ## 📝 Git Workflow
 
