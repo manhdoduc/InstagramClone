@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -10,5 +10,7 @@ namespace InstagramClone.Application.Interfaces.Services
     {
         string UserId { get; }
         string UserName { get; }
+        bool IsAdmin { get; }
+        bool IsInRole(string roleName);
     }
 }

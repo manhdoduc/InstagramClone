@@ -1,23 +1,23 @@
-using InstagramClone.Application.Features.Posts.DTOs;
-using InstagramClone.Application.Common.DTOs;
-using InstagramClone.Application.Interfaces;
-using InstagramClone.Application.Interfaces.Services;
-using InstagramClone.Common.Results;
-using InstagramClone.Application.Interfaces.Data;
-using InstagramClone.Domain.Entities;
-using InstagramClone.Common.Constants;
-using Serilog;
 using AutoMapper;
+using InstagramClone.Application.Common;
+using InstagramClone.Application.Common.DTOs;
+using InstagramClone.Application.Features.Notifications.Services;
+using InstagramClone.Application.Features.Posts.DTOs;
+using InstagramClone.Application.Interfaces;
+using InstagramClone.Application.Interfaces.Caching;
+using InstagramClone.Application.Interfaces.Data;
+using InstagramClone.Application.Interfaces.Services;
+using InstagramClone.Common.Constants;
+using InstagramClone.Common.Results;
+using InstagramClone.Domain.Entities;
+using InstagramClone.Domain.Enums;
+using Microsoft.EntityFrameworkCore;
+using Serilog;
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
-using InstagramClone.Application.Interfaces.Caching;
-using InstagramClone.Application.Common;
-
-using InstagramClone.Application.Features.Notifications.Services;
-using InstagramClone.Domain.Enums;
 
 namespace InstagramClone.Application.Features.Posts.Services;
 
@@ -92,7 +92,7 @@ public class PostServices(
             if(!saved)                    
             {
                 Log.Error("User {UserId} failed to save post {Content} to database", userId, createPostDto.Content);
-                throw new Exception("Failed to save post to database");
+                return Result<string>.Failure(new Error("PostCreationFailed", "Failed to save post to database"));
             }
                 
             Log.Information("User {UserId} created post {PostId} with {MediaCount} images", userId, newPost.Id, newPost.MediaItems.Count);
@@ -126,9 +126,9 @@ public class PostServices(
         if(post == null)
             return Result.NotFound(new Error(ErrorCodes.NotFound, "Post does not exist"));
 
-        //2. check ownership
-        if(post.UserId != userId)
-            return Result.Failure(new Error(ErrorCodes.Forbid, "User is not the owner of the post"));
+        //2. check ownership or admin role
+        if (post.UserId != userId && !currentUser.IsAdmin)
+            return Result.Failure(new Error(ErrorCodes.Forbid, "User is not authorized to delete this post"));
 
         //3. soft delete post and medias
         post.MarkAsDeleted(); // soft delete post
@@ -355,9 +355,9 @@ public class PostServices(
             }
             return Result.Success();
         }
-        catch (Exception ex)
+        catch (DbUpdateException)
         {
-            Log.Error(ex, "Toggle like failed for post {PostId} user {UserId}", postId, userId);
+            Log.Error("Toggle like failed for post {PostId} user {UserId}", postId, userId);
             return Result.Failure(new Error(ErrorCodes.Failure, "Failed to update like status."));
         }
     }

@@ -60,7 +60,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICurrentUserService, CurrentUserServices>();
         services.AddScoped<IChatNotificationService, ChatNotificationService>();
         services.AddScoped<ISocialNotificationService, SocialNotificationService>();
-        services.AddScoped<ICacheService, MemoryCacheService>();
+        services.AddSingleton<ICacheService, MemoryCacheService>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
 
         // Database
@@ -93,7 +93,14 @@ public static class ServiceCollectionExtensions
         {
             options.Password.RequireDigit = true;
             options.Password.RequiredLength = 6;
+            options.Password.RequireUppercase = true;
+            options.Password.RequireLowercase = true;
+            options.Password.RequireNonAlphanumeric = true;
             options.User.RequireUniqueEmail = true;
+
+            // Lockout settings
+            options.Lockout.MaxFailedAccessAttempts = 5;
+            options.Lockout.DefaultLockoutTimeSpan = TimeSpan.FromMinutes(5);
         })
         .AddEntityFrameworkStores<AppDbContext>()
         .AddDefaultTokenProviders();
@@ -226,7 +233,20 @@ public static class ServiceCollectionExtensions
         });
 
         services.AddSignalR();
-        services.AddDistributedMemoryCache();
+
+        var redisConnectionString = configuration.GetConnectionString("Redis");
+        if (!string.IsNullOrWhiteSpace(redisConnectionString))
+        {
+            services.AddStackExchangeRedisCache(options =>
+            {
+                options.Configuration = redisConnectionString;
+                options.InstanceName = "InstagramClone:";
+            });
+        }
+        else
+        {
+            services.AddDistributedMemoryCache();
+        }
 
         services.AddRateLimiter(options =>
         {

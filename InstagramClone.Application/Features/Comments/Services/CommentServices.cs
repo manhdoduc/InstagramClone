@@ -82,8 +82,8 @@ public class CommentServices(
         if(comment is null)
             return Result<string>.Failure(new Error(ErrorCodes.NotFound, "Comment not found"));
 
-        if(comment.UserId != userId && comment.Post.UserId != userId)
-            return Result<string>.Failure(new Error(ErrorCodes.Forbid, "You can only delete your own comments or comments on your posts"));
+        if (comment.UserId != userId && comment.Post.UserId != userId && !currentUser.IsAdmin)
+            return Result<string>.Failure(new Error(ErrorCodes.Forbid, "You do not have permission to delete this comment"));
 
         comment.MarkAsDeleted();
         unitOfWork.Comments.Update(comment);

@@ -236,7 +236,7 @@ namespace InstagramClone.Infrastructure.Services{
             }
             catch
             {
-                return null;
+                throw new SecurityTokenException("Invalid token");
             }
         }
 

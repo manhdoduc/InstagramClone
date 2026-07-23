@@ -165,24 +165,25 @@ try
 
     Log.Information("Application started successfully.");
 
-    using (var scope = app.Services.CreateScope())
-    {
-        var services = scope.ServiceProvider;
-        try
-        {
-            var context = services.GetRequiredService<AppDbContext>();
-            if (context.Database.GetPendingMigrations().Any())
-            {
-                Log.Information("Applying pending migrations...");
-                context.Database.Migrate();
-                Log.Information("Migrations applied successfully.");
-            }
-        }
-        catch (Exception ex)
-        {
-            Log.Error(ex, "An error occurred while migrating the database.");
-        } 
-    }
+    // Tự động apply migration khi app start (nếu có migration mới) - chỉ dùng cho môi trường dev/test, không nên dùng cho prod
+    //using (var scope = app.Services.CreateScope())
+    //{
+    //    var services = scope.ServiceProvider;
+    //    try
+    //    {
+    //        var context = services.GetRequiredService<AppDbContext>();
+    //        if (context.Database.GetPendingMigrations().Any())
+    //        {
+    //            Log.Information("Applying pending migrations...");
+    //            context.Database.Migrate();
+    //            Log.Information("Migrations applied successfully.");
+    //        }
+    //    }
+    //    catch (Exception ex)
+    //    {
+    //        Log.Error(ex, "An error occurred while migrating the database.");
+    //    } 
+    //}
 
     app.Run();
 }
