@@ -1,7 +1,6 @@
 using AutoMapper;
 using AutoMapper.QueryableExtensions;
 using InstagramClone.Application.Features.Users.DTOs;
-using InstagramClone.Application.Interfaces;
 using InstagramClone.Application.Interfaces.Caching;
 using InstagramClone.Application.Interfaces.Data;
 using InstagramClone.Application.Interfaces.Services;
@@ -9,12 +8,9 @@ using InstagramClone.Common.Constants;
 using InstagramClone.Common.Helper;
 using InstagramClone.Common.Results;
 using InstagramClone.Domain.Constants;
-using InstagramClone.Domain.Entities;
 using InstagramClone.Domain.Enums;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-using InstagramClone.Infrastructure.Identity;
 
 namespace InstagramClone.Infrastructure.Services;
 public class UserServices(IStorageServices storageServices, 
@@ -180,22 +176,18 @@ public class UserServices(IStorageServices storageServices,
         var profileRev = await cache.GetScopeVersionAsync($"user:profile:rev:{targetUserId}");
         var cacheKey = $"user:profile:{userId}:{targetUserId}:{profileRev}";
 
-        // 1. Gọi Cache (Lưu ý: Factory chỉ trả về DTO hoặc null)
         var cachedProfile = await cache.GetOrCreateAsync<UserProfileResponseDto?>(
             cacheKey,
             factory: async () =>
             {
-                // TÌM USER TRƯỚC
                 if (!Guid.TryParse(targetUserId, out var targetUserIdGuid)) return null;
                 var userExists = await unitOfWork.Users.AnyAsync(u => u.Id == targetUserIdGuid);
                 if (!userExists) return null;
 
                 bool myAccount = userId == targetUserId;
 
-                var profile = await unitOfWork.Users.QueryNoTracking()
-                    .Where(u => u.Id == targetUserIdGuid)
-                    .ProjectTo<UserProfileResponseDto>(mapper.ConfigurationProvider, new { currentUserId = userId, targetUserId = targetUserId })
-                    .FirstOrDefaultAsync();
+                if (!Guid.TryParse(userId, out var currentUserIdGuid)) return null;
+                var profile = await unitOfWork.Users.GetUserProfileAsync(targetUserIdGuid, currentUserIdGuid);
 
                 if (profile == null) return null;
 
@@ -204,19 +196,13 @@ public class UserServices(IStorageServices storageServices,
 
                 if (canViewPosts)
                 {
-                    profile.RecentPosts = await unitOfWork.Posts.QueryNoTracking()
-                        .Where(p => p.UserId == targetUserIdGuid)
-                        .OrderByDescending(p => p.CreatedAt)
-                        .Take(12)
-                        .ProjectTo<PostGridItemDto>(mapper.ConfigurationProvider)
-                        .ToListAsync();
+                    profile.RecentPosts = await unitOfWork.Posts.GetRecentPostsGridAsync(targetUserIdGuid, 12);
                 }
 
                 return profile;
             },
             TimeSpan.FromMinutes(2));
 
-        // 2. KIỂM TRA KẾT QUẢ SAU KHI LẤY TỪ CACHE
         if (cachedProfile == null)
         {
             return Result<UserProfileResponseDto>.Failure(new Error("NotFound", "User does not exist."));
@@ -232,24 +218,11 @@ public class UserServices(IStorageServices storageServices,
         if (string.IsNullOrWhiteSpace(searchTerm))
             return Result<List<UserSummaryDto>>.BadRequest(new Error(ErrorCodes.BadRequest, "Search term cannot be empty."));
 
-        searchTerm = RemoveDiacritics.RemoveDiacritic(searchTerm.Trim());
+        if (!Guid.TryParse(userId, out var currentUserId))
+            return Result<List<UserSummaryDto>>.BadRequest(new Error(ErrorCodes.BadRequest, "Invalid User ID."));
 
-        var query = unitOfWork.Users.QueryNoTracking();
+        var users = await unitOfWork.Users.SearchUsersAsync(searchTerm, currentUserId);
 
-        if (searchTerm.StartsWith("@"))
-        {
-            string usernameSearch = searchTerm.Substring(1);
-            query = query.Where(u => u.UserName == usernameSearch);
-        }
-        else
-        {
-            query = query.Where(u => (u.FullNameSearch!).Contains(searchTerm));
-        }
-        var user = await query
-            .Take(15)
-            .ProjectTo<UserSummaryDto>(mapper.ConfigurationProvider, new { currentUserId = userId })
-            .ToListAsync();
-
-        return Result<List<UserSummaryDto>>.Success(user);
+        return Result<List<UserSummaryDto>>.Success(users);
     }
 }

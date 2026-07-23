@@ -49,6 +49,8 @@ public class PostConfiguration : IEntityTypeConfiguration<Post>
     {
         builder.HasQueryFilter(p => !p.IsDeleted);
 
+        builder.HasIndex(p => new { p.UserId, p.CreatedAt });
+
         builder.HasOne(p => p.User)
             .WithMany(u => u.Posts)
             .HasForeignKey(p => p.UserId)
@@ -93,6 +95,8 @@ public class LikeConfiguration : IEntityTypeConfiguration<Like>
     {
         builder.HasQueryFilter(l => !l.IsDeleted);
 
+        builder.HasIndex(l => new { l.PostId, l.UserId }).IsUnique();
+
         builder.HasOne(l => l.Post)
             .WithMany(p => p.Likes)
             .HasForeignKey(l => l.PostId)
@@ -131,6 +135,8 @@ public class CommentLikeConfiguration : IEntityTypeConfiguration<CommentLike>
     {
         builder.HasQueryFilter(cl => !cl.IsDeleted);
 
+        builder.HasIndex(cl => new { cl.CommentId, cl.UserId }).IsUnique();
+
         builder.HasOne(cl => cl.Comment)
             .WithMany(c => c.Likes)
             .HasForeignKey(cl => cl.CommentId)
@@ -150,6 +156,8 @@ public class SavedPostConfiguration : IEntityTypeConfiguration<SavedPost>
         builder.HasQueryFilter(sp => !sp.IsDeleted);
         
         builder.Property(sp => sp.UserId).HasMaxLength(450);
+
+        builder.HasIndex(sp => new { sp.UserId, sp.PostId }).IsUnique();
 
         builder.HasOne(sp => sp.Post)
             .WithMany(p => p.SavedPosts)
@@ -187,6 +195,8 @@ public class ChatParticipantConfiguration : IEntityTypeConfiguration<ChatPartici
     {
         builder.HasKey(cp => new { cp.ChatRoomId, cp.UserId });
 
+        builder.HasIndex(cp => cp.UserId);
+
         builder.HasOne(cp => cp.ChatRoom)
             .WithMany(cr => cr.ChatParticipant)
             .HasForeignKey(cp => cp.ChatRoomId)
@@ -203,6 +213,8 @@ public class MessageConfiguration : IEntityTypeConfiguration<Message>
 {
     public void Configure(EntityTypeBuilder<Message> builder)
     {
+        builder.HasIndex(m => new { m.ChatRoomId, m.CreatedAt });
+
         builder.HasOne(m => m.ChatRoom)
             .WithMany(cr => cr.Messages)
             .HasForeignKey(m => m.ChatRoomId)
@@ -230,6 +242,24 @@ public class MessageReactionConfiguration : IEntityTypeConfiguration<MessageReac
         builder.HasOne(mr => mr.User)
             .WithMany()
             .HasForeignKey(mr => mr.UserId)
+            .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+public class NotificationConfiguration : IEntityTypeConfiguration<Notification>
+{
+    public void Configure(EntityTypeBuilder<Notification> builder)
+    {
+        builder.HasQueryFilter(n => !n.IsDeleted);
+
+        builder.HasOne(n => n.Recipient)
+            .WithMany()
+            .HasForeignKey(n => n.RecipientId)
+            .OnDelete(DeleteBehavior.Cascade);
+
+        builder.HasOne(n => n.Actor)
+            .WithMany()
+            .HasForeignKey(n => n.ActorId)
             .OnDelete(DeleteBehavior.Restrict);
     }
 }

@@ -13,9 +13,9 @@ namespace InstagramClone.Infrastructure.SignalR{
     public class ChatHub(ICurrentUserService currentUser, IChatService chatService) : Hub<IChatHub>
     {
         private static readonly ConcurrentDictionary<string, HashSet<string>> _onlineUsers = new();
-        // sau d˘ng redis pub/sub d? qu?n l˝ online/offline thay vÏ d˘ng static dictionary n‡y, vÏ static dictionary n‡y s? b? reset khi app restart, v‡ khÙng th? scale ra nhi?u instance du?c
+        // sau d√πng redis pub/sub d? qu?n l√Ω online/offline thay v√¨ d√πng static dictionary n√†y, v√¨ static dictionary n√†y s? b? reset khi app restart, v√† kh√¥ng th? scale ra nhi?u instance du?c
 
-        // 1. QU?N L› ONLINE / OFFLINE
+        // 1. QU?N L√ù ONLINE / OFFLINE
 
         public override async Task OnConnectedAsync()
         {
@@ -29,7 +29,16 @@ namespace InstagramClone.Infrastructure.SignalR{
                 return existingSet;
             });
             await Clients.Others.UserOnline(userId); 
-            // cÛ th? d˘ng redis pub/sub d? broadcast s? ki?n online/offline n‡y d?n t?t c? instance c?a app, thay vÏ ch? broadcast trong instance hi?n t?i nhu th? n‡y
+
+            // T·ª± ƒë·ªông join connection n√†y v√†o t·∫•t c·∫£ c√°c SignalR Group ph√≤ng chat m√† user l√† th√†nh vi√™n
+            var userRoomsResult = await chatService.GetUserChatRoomsAsync();
+            if (userRoomsResult.IsSuccess && userRoomsResult.Value != null)
+            {
+                foreach (var room in userRoomsResult.Value)
+                {
+                    await Groups.AddToGroupAsync(Context.ConnectionId, room.Id.ToString().ToLower());
+                }
+            }
 
             await base.OnConnectedAsync();
         }
@@ -37,18 +46,26 @@ namespace InstagramClone.Infrastructure.SignalR{
         public override async Task OnDisconnectedAsync(Exception? exception)
         {
             var userId = currentUser.UserId;
+            var isTotallyOffline = false;
+
             if (_onlineUsers.TryGetValue(userId, out var connections))
             {
-                lock(connections)
+                lock (connections)
                 {
                     connections.Remove(Context.ConnectionId);
                     if (connections.Count == 0)
                     {
                         _onlineUsers.TryRemove(userId, out _);
+                        isTotallyOffline = true; // Ch·ªâ offline khi x√≥a s·∫°ch connection
                     }
                 }
             }
-            await Clients.Others.UserOffline(userId);
+
+            if (isTotallyOffline)
+            {
+                await Clients.Others.UserOffline(userId);
+            }
+
             await base.OnDisconnectedAsync(exception);
         }
 
@@ -58,44 +75,48 @@ namespace InstagramClone.Infrastructure.SignalR{
             return Task.FromResult(onlineUserIds);
         }
 
-        // 2. LU?NG CHAT 
+        // 2. LU·ªíNG CHAT 
+
+        // Cho ph√©p Client ch·ªß ƒë·ªông gia nh·∫≠p m·ªôt SignalR Group ph√≤ng chat (v√≠ d·ª• khi v·ª´a t·∫°o room m·ªõi ho·∫∑c v·ª´a m·ªü m√†n h√¨nh room)
+        public async Task JoinRoom(Guid chatRoomId)
+        {
+            await Groups.AddToGroupAsync(Context.ConnectionId, chatRoomId.ToString().ToLower());
+        }
 
         public async Task SendMessage(SendMessageDto sendMessage)
         {
-            var result = await chatService.CreateMessageAsync(sendMessage); // luu message v‡o database, khÙng c?n await vÏ ch˙ng ta s? g?i message di tru?c, n?u cÛ l?i khi luu thÏ cÛ th? x? l˝ sau
-            if (result.IsSuccess)
-                await Clients.Group(sendMessage.ChatRoomId.ToString()).ReceiveMessage(result.Value!);
+            await chatService.CreateMessageAsync(sendMessage); 
         }
 
         public async Task JoinChatRoom(string targetUserId, Guid chatRoomId)
         {
             var result = await chatService.AddMemberToGroupAsync(targetUserId, chatRoomId);
             if (result.IsSuccess)
-                await Groups.AddToGroupAsync(Context.ConnectionId, chatRoomId.ToString());
+                await Groups.AddToGroupAsync(Context.ConnectionId, chatRoomId.ToString().ToLower());
         }
 
         public async Task LeaveChatRoom(Guid chatRoomId)
         {
             var result = await chatService.LeaveGroupAsync(chatRoomId);
-            if(result.IsSuccess)
-                await Groups.RemoveFromGroupAsync(Context.ConnectionId, chatRoomId.ToString());
+            if (result.IsSuccess)
+                await Groups.RemoveFromGroupAsync(Context.ConnectionId, chatRoomId.ToString().ToLower());
         }
 
-        // d·nh d?u t?t c? tin nh?n trong phÚng chat l‡ d„ d?c
+        // ƒê√°nh d·∫•u t·∫•t c·∫£ tin nh·∫Øn trong ph√≤ng chat l√† ƒë√£ ƒë·ªçc
         public async Task MarkMessagesAsRead(Guid chatRoomId)
         {
             var userId = currentUser.UserId;
             var result = await chatService.MarkRoomAsReadAsync(chatRoomId);
             if (result.IsSuccess && result.Value)
             {
-                await Clients.Group(chatRoomId.ToString()).MessagesRead(userId, chatRoomId);
+                await Clients.Group(chatRoomId.ToString().ToLower()).MessagesRead(userId, chatRoomId);
             }
         }
 
         public async Task StartTyping(Guid chatRoomId)
         {
             var userId = currentUser.UserId;
-            // B?n tin cho nh?ng ngu?i KH¡C trong phÚng
+            // B·∫Øn tin cho nh·ªØng ng∆∞·ªùi KH√ÅC trong ph√≤ng
             await Clients.OthersInGroup(chatRoomId.ToString().ToLower())
                          .UserTyping(userId, chatRoomId);
         }
@@ -104,33 +125,17 @@ namespace InstagramClone.Infrastructure.SignalR{
         {
             var userId = currentUser.UserId;
             await Clients.OthersInGroup(chatRoomId.ToString().ToLower())
-                         .UserStoppedTyping( userId, chatRoomId);
+                         .UserStoppedTyping(userId, chatRoomId);
         }
-        // Ch˙ng ta cÛ th? thÍm c·c phuong th?c kh·c nhu StartTyping, StopTyping d? thÙng b·o cho ngu?i d˘ng kh·c bi?t khi n‡o m?t ngu?i dang gı tin nh?n, nhung trong b?n demo n‡y ch˙ng ta s? khÙng tri?n khai tÌnh nang dÛ d? gi? cho code don gi?n hon
-        // L‡m khi cÛ giao di?n
-
-
-        // Trong ChatHub.cs
 
         public async Task UnsendMessage(Guid messageId, Guid chatRoomId)
         {
-            var result = await chatService.UnsendMessageAsync(messageId);
-            if (result.IsSuccess)
-            {
-                // ThÙng b·o cho c? phÚng ?n tin nh?n n‡y di
-                await Clients.Group(chatRoomId.ToString()).MessageUnsent(messageId);
-            }
+            await chatService.UnsendMessageAsync(messageId);
         }
 
         public async Task ReactToMessage(Guid messageId, Guid chatRoomId, string emoji)
         {
-            var result = await chatService.ReactToMessageAsync(messageId, emoji);
-            if (result.IsSuccess)
-            {
-                // ThÙng b·o cho c? phÚng c?p nh?t l?i danh s·ch tim
-                var userId = currentUser.UserId;
-                await Clients.Group(chatRoomId.ToString()).MessageReacted(messageId, userId, emoji);
-            }
+            await chatService.ReactToMessageAsync(messageId, emoji);
         }
     }
 }

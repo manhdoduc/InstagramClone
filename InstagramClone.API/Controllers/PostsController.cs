@@ -4,6 +4,8 @@ using InstagramClone.Application.Interfaces.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
+using InstagramClone.API.Filters;
+using InstagramClone.Domain.Entities;
 
 namespace InstagramClone.API.Controllers
 {
@@ -63,6 +65,7 @@ namespace InstagramClone.API.Controllers
 
         // PUT: api/posts/{id}
         [HttpPut("{id:guid}")]
+        [AuthorizeOwnership(typeof(Post))]
         public async Task<ActionResult<bool>> UpdatePost([FromRoute] Guid id, [FromBody] UpdatePostDto dto)
         {
             var result = await postServices.UpdatePostAsync(dto.Content, id);
@@ -71,6 +74,7 @@ namespace InstagramClone.API.Controllers
 
         // DELETE: api/posts/{id}
         [HttpDelete("{id:guid}")]
+        [AuthorizeOwnership(typeof(Post))]
         public async Task<ActionResult> DeletePost([FromRoute] Guid id)
         {
             var result = await postServices.DeletePostAsync(id);

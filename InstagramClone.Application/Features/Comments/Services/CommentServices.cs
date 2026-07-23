@@ -1,36 +1,49 @@
 using InstagramClone.Application.Common.DTOs;
 using InstagramClone.Application.Features.Posts.DTOs;
-using InstagramClone.Application.Common.DTOs;
 using InstagramClone.Application.Interfaces;
 using InstagramClone.Application.Interfaces.Services;
 using InstagramClone.Common.Constants;
 using InstagramClone.Common.Results;
 using InstagramClone.Domain.Entities;
 using InstagramClone.Application.Interfaces.Data;
-using Microsoft.EntityFrameworkCore;
 using InstagramClone.Application.Interfaces.Caching;
-
 using AutoMapper;
-using AutoMapper.QueryableExtensions;
 using InstagramClone.Application.Common;
+using System;
+using System.Threading.Tasks;
+
+using InstagramClone.Application.Features.Notifications.Services;
+using InstagramClone.Domain.Enums;
 
 namespace InstagramClone.Application.Features.Comments.Services;
-public class CommentServices(IUnitOfWork unitOfWork, ICurrentUserService currentUser, ICacheService cache, IMapper mapper) : ICommentServices
+
+public class CommentServices(
+    IUnitOfWork unitOfWork,
+    ICurrentUserService currentUser,
+    ICacheService cache,
+    IMapper mapper,
+    INotificationServices notificationServices
+    ) : ICommentServices
 {
     public async Task<Result<ResponseCommentDto>> AddCommentAsync(Guid postId, CreateCommentDto commentDto)
     {
         if (!Guid.TryParse(currentUser.UserId, out var userId)) return Result<ResponseCommentDto>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
         await cache.BumpScopeVersionAsync($"comments:{postId}:version");
 
-        var postExits = await unitOfWork.Posts.AnyAsync(p => p.Id == postId);
-        if (!postExits)
+        var post = await unitOfWork.Posts.GetByIdAsync(postId);
+        if (post == null)
             return Result<ResponseCommentDto>.Failure(new Error(ErrorCodes.NotFound, "Post not found"));
 
         var comment = new Comment(postId, userId, commentDto.Content);
         unitOfWork.Comments.Add(comment);
         await unitOfWork.SaveChangesAsync();
 
-        var user = await unitOfWork.Users.QueryNoTracking().FirstAsync(u => u.Id == userId);
+        var user = await unitOfWork.Users.GetByIdAsync(userId);
+        if (user == null)
+            return Result<ResponseCommentDto>.Failure(new Error(ErrorCodes.NotFound, "User not found"));
+
+        // Trigger notification to post author
+        await notificationServices.CreateAndSendNotificationAsync(post.UserId, userId, NotificationType.Comment, $"commented on your post: \"{commentDto.Content}\"", postId);
 
         return Result<ResponseCommentDto>.Success(new ResponseCommentDto
         {
@@ -50,22 +63,9 @@ public class CommentServices(IUnitOfWork unitOfWork, ICurrentUserService current
 
         var cacheKey = $"comments:{postId}:{version}:{userId}:{pagination.Cursor}:{pagination.PageSize}";
 
-
         var cachedPost = await cache.GetOrCreateAsync<CursorPagedResponse<ResponseCommentDto>>(cacheKey, factory: async () =>
         {
-            var query = unitOfWork.Comments
-            .QueryNoTracking()
-            .Where(c => c.PostId == postId);
-
-            if (pagination.Cursor.HasValue)
-                query = query.Where(c => c.CreatedAt < pagination.Cursor.Value);
-
-            var comments = await query
-                .OrderByDescending(c => c.CreatedAt)
-                .Take(pagination.PageSize + 1)
-                .ProjectTo<ResponseCommentDto>(mapper.ConfigurationProvider, new { currentUserId = userId })
-                .ToListAsync();
-
+            var comments = await unitOfWork.Comments.GetCommentsByPostIdAsync(postId, pagination.Cursor, pagination.PageSize, userId);
             return PaginationHelper.ToCursorPaged(comments, pagination.PageSize, c => c.CreatedAt);
         });
 
@@ -77,9 +77,7 @@ public class CommentServices(IUnitOfWork unitOfWork, ICurrentUserService current
         if (!Guid.TryParse(currentUser.UserId, out var userId))
             return Result<string>.Failure(new Error(ErrorCodes.Forbid, "Unauthorized"));
 
-        var comment = await unitOfWork.Comments.Query()
-            .Include(c => c.Post)
-            .FirstOrDefaultAsync(c => c.Id == commentId);
+        var comment = await unitOfWork.Comments.GetByIdWithPostAsync(commentId);
 
         if(comment is null)
             return Result<string>.Failure(new Error(ErrorCodes.NotFound, "Comment not found"));
@@ -101,7 +99,7 @@ public class CommentServices(IUnitOfWork unitOfWork, ICurrentUserService current
         }
         catch (Exception ex)
         {
-            var rootError = ex.InnerException != null ? ex.InnerException.Message : ex.Message; // dùng để lấy lỗi gốc nếu có InnerException, nếu không thì lấy lỗi hiện tại
+            var rootError = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
             return Result<string>.Failure(new Error(ErrorCodes.Failure, rootError));
         }
     }
@@ -110,41 +108,32 @@ public class CommentServices(IUnitOfWork unitOfWork, ICurrentUserService current
     {
         if (!Guid.TryParse(currentUser.UserId, out var userId)) return Result<string>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
 
-        var commentExits = await unitOfWork.Comments
-            .AnyAsync(c => c.Id == commentId);
+        var commentExits = await unitOfWork.Comments.AnyAsync(c => c.Id == commentId);
 
         if (!commentExits)
             return Result<string>.Failure(new Error(ErrorCodes.NotFound, "Comment not found"));
 
-        var existingLike = await unitOfWork.CommentLikes.Query()
-            .IgnoreQueryFilters()
-            .FirstOrDefaultAsync(l => l.CommentId == commentId && l.UserId == userId);
+        var existingLike = await unitOfWork.Comments.GetLikeAsync(userId, commentId, includeDeleted: true);
 
         string resultMessage = "";
 
         if (existingLike == null)
         {
             var like = new CommentLike(userId, commentId);
-            unitOfWork.CommentLikes.Add(like);
+            unitOfWork.Comments.AddLike(like);
             resultMessage = LikeCodess.Liked;
-
         }
         else
         {
             existingLike.ToggleDeleted();
-            unitOfWork.CommentLikes.Update(existingLike);
+            unitOfWork.Comments.UpdateLike(existingLike);
             resultMessage = existingLike.IsDeleted ? LikeCodess.Unlike : LikeCodess.Liked;
         }
         await unitOfWork.SaveChangesAsync();
 
-        var postId = await unitOfWork.Comments.QueryNoTracking()
-            .Where(c => c.Id == commentId)
-            .Select(c => c.PostId)
-            .FirstAsync();
+        var postId = await unitOfWork.Comments.GetPostIdAsync(commentId);
         await cache.BumpScopeVersionAsync($"comments:{postId}:version");
 
         return Result<string>.Success(resultMessage);
-
     }
 }
-

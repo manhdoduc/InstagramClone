@@ -376,3 +376,5 @@ InstagramClone.API/wwwroot/media/*
 # K8s Secret files (chứa DB password, JWT key)
 /k8s
 
+# Môi trường
+.env

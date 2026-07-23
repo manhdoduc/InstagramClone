@@ -38,12 +38,14 @@ try
     builder.Services.AddInfrastructureServices(builder.Configuration);
     builder.Services.AddIdentityAndAuthServices(builder.Configuration);
     builder.Services.AddSwaggerAndApiServices(builder.Configuration);
-    builder.Services.AddHealthCheckServices();
+    builder.Services.AddHealthCheckServices(builder.Configuration);
 
     var app = builder.Build();
 
     // 0. Middleware xử lý lỗi Global
     app.UseMiddleware<GlobalExceptionMiddleware>();
+
+    
 
     app.UseSerilogRequestLogging(options =>
     {
@@ -99,7 +101,10 @@ try
 
     app.UseRateLimiter();
 
+    app.UseStatusCodePages();
+
     app.MapHub<ChatHub>("/chathub");
+    app.MapHub<NotificationHub>("/hubs/notifications");
 
     app.MapControllers();
 
@@ -132,20 +137,24 @@ try
     //    }
     //});
 
-    // 
+    // Dành cho HealthChecks UI: Chạy TẤT CẢ các check và xuất ra JSON chuẩn để UI đọc
     app.MapHealthChecks("/healthz", new HealthCheckOptions
     {
         ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
     });
 
+    // Liveness Probe: Dùng cho Docker/K8s biết container có bị "treo" hay không
+    // Chỉ kiểm tra tag "api" (tức là cái self-check)
     app.MapHealthChecks("/healthz/live", new HealthCheckOptions
     {
-        Predicate = _ => false // Chỉ trả về "Healthy" nếu ứng dụng đang chạy, không kiểm tra bất kỳ thành phần nào khác
+        Predicate = check => check.Tags.Contains("api") 
     });
 
+    // Readiness Probe: Dùng cho Docker/K8s/Nginx biết app đã sẵn sàng nhận traffic chưa
+    // Kiểm tra DB, tài nguyên hệ thống (RAM/Ổ cứng), và các dịch vụ phụ trợ
     app.MapHealthChecks("/healthz/ready", new HealthCheckOptions
     {
-        Predicate = check => check.Tags.Contains("db") // cái này dùng check database hoạt động 
+        Predicate = check => check.Tags.Contains("db") || check.Tags.Contains("system") || check.Tags.Contains("infrastructure")
     });
 
     app.MapHealthChecksUI(options =>
@@ -173,9 +182,9 @@ try
         {
             Log.Error(ex, "An error occurred while migrating the database.");
         } 
-        
-        app.Run();
     }
+
+    app.Run();
 }
 catch (Exception ex)
 {

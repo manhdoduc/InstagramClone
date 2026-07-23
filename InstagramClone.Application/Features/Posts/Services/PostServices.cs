@@ -5,25 +5,36 @@ using InstagramClone.Application.Interfaces.Services;
 using InstagramClone.Common.Results;
 using InstagramClone.Application.Interfaces.Data;
 using InstagramClone.Domain.Entities;
-using Microsoft.EntityFrameworkCore;
 using InstagramClone.Common.Constants;
-using InstagramClone.Application.Common.DTOs;
-using InstagramClone.Domain.Enums;
-
-using System.Text.RegularExpressions;
-using InstagramClone.Application.Interfaces.Caching;
-using InstagramClone.Application.Common;
 using Serilog;
 using AutoMapper;
-using AutoMapper.QueryableExtensions;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.RegularExpressions;
+using System.Threading.Tasks;
+using InstagramClone.Application.Interfaces.Caching;
+using InstagramClone.Application.Common;
+
+using InstagramClone.Application.Features.Notifications.Services;
+using InstagramClone.Domain.Enums;
 
 namespace InstagramClone.Application.Features.Posts.Services;
-public class PostServices(IUnitOfWork unitOfWork, IMapper mapper, ICurrentUserService currentUser, IStorageServices storageServices, ICacheService cache) : IPostServices
+
+public class PostServices(
+    IUnitOfWork unitOfWork,
+    IMapper mapper,
+    ICurrentUserService currentUser,
+    IStorageServices storageServices,
+    ICacheService cache,
+    INotificationServices notificationServices
+    ) : IPostServices
 {
     public async Task<Result<string>> CreatePostAsync(CreatePostDto createPostDto)
     {
         // validate userId
-        if (!Guid.TryParse(currentUser.UserId, out var userId)) return Result<string>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
+        if (!Guid.TryParse(currentUser.UserId, out var userId)) 
+            return Result<string>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
 
         // 2. create post
         var newPost = new Post(userId, createPostDto.Content ?? string.Empty);
@@ -43,7 +54,6 @@ public class PostServices(IUnitOfWork unitOfWork, IMapper mapper, ICurrentUserSe
                     throw new Exception($"Failed to upload file: {file.FileName}");
                 }
 
-                // 
                 var mediaUrl = uploadResult.Value!;
                 uploadUrls.Add(mediaUrl);
 
@@ -58,9 +68,7 @@ public class PostServices(IUnitOfWork unitOfWork, IMapper mapper, ICurrentUserSe
 
             if(tags.Any())
             {
-                var exitstingTags = await unitOfWork.Hashtags.QueryNoTracking()
-                    .Where(t => tags.Contains(t.Name))
-                    .ToListAsync();
+                var exitstingTags = await unitOfWork.Posts.GetHashtagsByNamesAsync(tags);
                 
                 foreach(var tag in tags)
                 {
@@ -69,10 +77,10 @@ public class PostServices(IUnitOfWork unitOfWork, IMapper mapper, ICurrentUserSe
                     if(hashtagEntity == null)
                     {
                         hashtagEntity = new Hashtag { Name = tag };
-                        unitOfWork.Hashtags.Add(hashtagEntity);
+                        unitOfWork.Posts.AddHashtag(hashtagEntity);
                     }
 
-                    unitOfWork.PostHashtags.Add(new PostHashtag
+                    unitOfWork.Posts.AddPostHashtag(new PostHashtag
                     {
                         Hashtag = hashtagEntity,
                         Post = newPost
@@ -113,7 +121,7 @@ public class PostServices(IUnitOfWork unitOfWork, IMapper mapper, ICurrentUserSe
             return Result.Failure(new Error("Unauthorized", "User is not authenticated"));
 
         //1. find post end medias 
-        var post = await unitOfWork.Posts.Query().Include(p => p.MediaItems).FirstOrDefaultAsync(p => p.Id == postId);
+        var post = await unitOfWork.Posts.GetByIdWithMediaAsync(postId);
 
         if(post == null)
             return Result.NotFound(new Error(ErrorCodes.NotFound, "Post does not exist"));
@@ -135,7 +143,6 @@ public class PostServices(IUnitOfWork unitOfWork, IMapper mapper, ICurrentUserSe
         //4. save changes to database
         try
         {
-            // Tách riêng ra để kiểm tra
             var rowsAffected = await unitOfWork.SaveChangesAsync();
 
             if (rowsAffected == 0)
@@ -169,26 +176,10 @@ public class PostServices(IUnitOfWork unitOfWork, IMapper mapper, ICurrentUserSe
             if (!Guid.TryParse(currentUser.UserId, out var userId)) return null;
 
             // Lấy danh sách ID những người mình đang Follow (đã Accepted)
-            var followingIds = await unitOfWork.Follows.QueryNoTracking()
-                .Where(f => f.FollowerId == userId && f.Status == FollowStatus.Accepted)
-                .Select(f => f.FolloweeId)
-                .ToListAsync();
-
+            var followingIds = await unitOfWork.Users.GetFollowingIdsAsync(userId);
             followingIds.Add(userId);
 
-            var query = unitOfWork.Posts.QueryNoTracking()
-                .Where(p => followingIds.Contains(p.UserId));
-
-            if (cursorPagination.Cursor.HasValue)
-            {
-                query = query.Where(p => p.CreatedAt < cursorPagination.Cursor.Value);
-            }
-
-            var posts = await query
-                .OrderByDescending(p => p.CreatedAt)
-                .Take(cursorPagination.PageSize + 1)
-                .ProjectTo<ResponsePostDto>(mapper.ConfigurationProvider, new { currentUserId = currentUser.UserId })
-                .ToListAsync();
+            var posts = await unitOfWork.Posts.GetFeedsAsync(followingIds, cursorPagination.Cursor, cursorPagination.PageSize, userId);
 
             return PaginationHelper.ToCursorPaged(posts, cursorPagination.PageSize, p => p.CreatedAt);
         });
@@ -200,32 +191,23 @@ public class PostServices(IUnitOfWork unitOfWork, IMapper mapper, ICurrentUserSe
     {
         if (!Guid.TryParse(currentUser.UserId, out var userId)) return Result<bool>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
         await cache.BumpScopeVersionAsync($"post:detail:rev:{postId}");
-        // 1. Chỉ chọc xuống DB 1 lần duy nhất để lấy bài viết
-        var postToUpdate = await unitOfWork.Posts.Query().FirstOrDefaultAsync(p => p.Id == postId);
+        var postToUpdate = await unitOfWork.Posts.GetByIdAsync(postId);
 
-        // 2. Chặn lỗi 1: Bài viết không tồn tại (Bị xóa hoặc truyền sai ID)
         if (postToUpdate == null)
         {
             return Result<bool>.Failure(new Error(ErrorCodes.NotFound, "Post does not exist."));
         }
 
-        // 3. Chặn lỗi 2 (Bảo mật): Bài viết tồn tại nhưng KHÔNG thuộc về user đang đăng nhập
         if (postToUpdate.UserId != userId)
         {
             return Result<bool>.Failure(new Error(ErrorCodes.Forbid, "You do not have permission to edit this post."));
         }
 
-        // 4. Thực hiện cập nhật dữ liệu (Không cần dùng context.Posts.Update)
         postToUpdate.EditContent(content);
 
         try
         {
-            var rowsAffected = await unitOfWork.SaveChangesAsync();
-
-            // LƯU Ý UX QUAN TRỌNG: 
-            // Nếu user bấm "Sửa" nhưng KHÔNG thay đổi chữ nào, EF Core sẽ phát hiện ra và không chạy lệnh SQL.
-            // Lúc này rowsAffected = 0. Đây không phải là lỗi, nên ta vẫn trả về Success.
-
+            await unitOfWork.SaveChangesAsync();
             await cache.BumpScopeVersionAsync("posts:feed:data");
             await cache.BumpScopeVersionAsync("posts:search:data");
             await cache.BumpScopeVersionAsync($"user:profile:rev:{postToUpdate.UserId}");
@@ -237,6 +219,7 @@ public class PostServices(IUnitOfWork unitOfWork, IMapper mapper, ICurrentUserSe
             return Result<bool>.Failure(new Error(ErrorCodes.Failure, "An error occurred while updating the post, please try again later."));
         }
     }
+
     public async Task<Result<ResponsePostDto>> GetPostByIdAsync(Guid postId)
     {
         if (!Guid.TryParse(currentUser.UserId, out var userId)) return Result<ResponsePostDto>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
@@ -245,61 +228,13 @@ public class PostServices(IUnitOfWork unitOfWork, IMapper mapper, ICurrentUserSe
 
         var cachedPost = await cache.GetOrCreateAsync<ResponsePostDto?>(cacheKey, factory: async () => 
         {
-            var post = await unitOfWork.Posts
-            .QueryNoTracking()
-            .Where(p => p.Id == postId)
-            .ProjectTo<ResponsePostDto>(mapper.ConfigurationProvider, new { currentUserId = userId })
-            .FirstOrDefaultAsync();
-            if (post == null)
-                return null;
-
-            return post;
+            return await unitOfWork.Posts.GetPostDtoByIdAsync(postId, userId);
         });
         if(cachedPost == null)
             return Result<ResponsePostDto>.NotFound(new Error(ErrorCodes.NotFound, "Post does not exist"));
 
         return Result<ResponsePostDto>.Success(cachedPost);
     }
-    
-    //public async Task<Result<List<ResponsePostDto>>> GetFeedAsync(CursorPaginationRequest cursorPagination)
-    //{
-    //    var userId = currentUser.UserId;
-    //    // Bước 1: Lấy danh sách ID những người mình đang Follow (đã Accepted)
-    //    var followingIds = await context.Follows
-    //        .Where(f => f.FollowerId == userId && f.Status == FollowStatus.Accepted)
-    //        .Select(f => f.FolloweeId)
-    //        .ToListAsync();
-    //    // Bước 2: Nhét luôn ID của chính mình vào danh sách này
-    //    followingIds.Add(userId); // Thêm userId của chính mình để hiển thị cả bài viết của bản thân trong feed
-    //    // Bước 3: Dựng Query gom chung (Người quen HOẶC Tài khoản Public)
-    //    var query = context.Posts.AsNoTracking()
-    //        .Where(p => followingIds.Contains(p.UserId) || p.User.IsPrivateAccount == false);
-
-    //    // Bước 4: Chặn Cursor để chống trôi bài và tăng tốc độ query
-    //    if(cursorPagination.Cursor.HasValue)
-    //    {
-    //        query = query.Where(p => p.CreatedAt < cursorPagination.Cursor.Value);
-    //    }
-    //    // Bước 5: Lấy dữ liệu và Map ra DTO
-    //    var feed = await query 
-    //        .OrderByDescending(p => p.CreatedAt)
-    //        .Take(cursorPagination.PageSize + 1)
-    //        .Select(p => new ResponsePostDto
-    //        {
-    //            Id = p.Id,
-    //            Content = p.Content,
-    //            CreatedAt = p.CreatedAt,
-    //            AuthorId = p.UserId,
-    //            AuthorName = p.User.FullName,
-    //            AuthorAvatar = p.User.AvatarUrl,
-    //            MediaUrls = p.MediaItems.Select(m => m.MediaUrl).ToList(),
-    //            LikeCount = p.Likes.Count(),
-    //            IsLiked = p.Likes.Any(l => l.UserId == userId && !l.IsDeleted), // kiểm tra xem user hiện tại đã like bài post chưa
-    //            CommentCount = p.Comments.Count()
-    //        })
-    //        .ToListAsync();
-    //    return Result<List<ResponsePostDto>>.Success(feed);
-    //}
 
     public async Task<Result> ToggleSavePostAsync(Guid postId)
     {
@@ -309,19 +244,17 @@ public class PostServices(IUnitOfWork unitOfWork, IMapper mapper, ICurrentUserSe
         if(!postExists)
             return Result.NotFound(new Error(ErrorCodes.NotFound, "Post does not exist"));
 
-        var existingSave = await unitOfWork.SavedPosts.Query()
-            .IgnoreQueryFilters()
-            .FirstOrDefaultAsync(s => s.UserId == currentUserId && s.PostId == postId);
+        var existingSave = await unitOfWork.Posts.GetSavedPostAsync(currentUserId, postId, includeDeleted: true);
 
         if (existingSave == null)
         {
             var newSave = new SavedPost(currentUserId, postId);
-            unitOfWork.SavedPosts.Add(newSave);
+            unitOfWork.Posts.AddSavedPost(newSave);
         }
         else
         {
             existingSave.ToggleDeleted(); // toggle trạng thái saved/unsaved
-            unitOfWork.SavedPosts.Update(existingSave);
+            unitOfWork.Posts.UpdateSavedPost(existingSave);
         }
         try
         {
@@ -345,24 +278,10 @@ public class PostServices(IUnitOfWork unitOfWork, IMapper mapper, ICurrentUserSe
         var cacheKey = $"posts:saved:{userId}:{savedScope}:{cursorPagination.PageSize}:{cursorPagination.Cursor}";
         var cachedSavedPosts = await cache.GetOrCreateAsync<CursorPagedResponse<ResponsePostDto>>(cacheKey, factory: async () =>
         {
-            var query = unitOfWork.SavedPosts
-           .QueryNoTracking()
-           .Where(s => s.UserId == userId && !s.IsDeleted)
-           .Select(s => s.Post);
-            if (cursorPagination.Cursor.HasValue)
-            {
-                query = query.Where(p => p.CreatedAt < cursorPagination.Cursor.Value);
-            }
-            var savedPosts = await query
-                .OrderByDescending(p => p.CreatedAt)
-                .Take(cursorPagination.PageSize + 1)
-                .ProjectTo<ResponsePostDto>(mapper.ConfigurationProvider, new { currentUserId = userId })
-                .ToListAsync();
-
-            return PaginationHelper.ToCursorPaged(savedPosts, cursorPagination.PageSize, p => p.CreatedAt);
+            var posts = await unitOfWork.Posts.GetSavedPostsAsync(userId, cursorPagination.Cursor, cursorPagination.PageSize);
+            return PaginationHelper.ToCursorPaged(posts, cursorPagination.PageSize, p => p.CreatedAt);
         });
 
-       
         return Result<CursorPagedResponse<ResponsePostDto>>.Success(cachedSavedPosts);
     }
 
@@ -370,14 +289,11 @@ public class PostServices(IUnitOfWork unitOfWork, IMapper mapper, ICurrentUserSe
     {
         if (string.IsNullOrWhiteSpace(content)) return new List<string>();
 
-        // \p{L}: Chữ cái (Bao gồm tiếng Việt)
-        // \p{N}: Số
-        // _: Dấu gạch dưới
         var regex = new Regex(@"#[\p{L}\p{N}_]+");
 
         return regex.Matches(content)
-                    .Select(m => m.Value.ToLower()) // Ép về chữ thường hết (VD: #VNU và #vnu là một)
-                    .Distinct()                     // Lọc trùng (Lỡ user gõ 2 chữ #vnu trong 1 bài)
+                    .Select(m => m.Value.ToLower())
+                    .Distinct()
                     .ToList();
     }
 
@@ -395,31 +311,7 @@ public class PostServices(IUnitOfWork unitOfWork, IMapper mapper, ICurrentUserSe
                 return null;
             }
 
-            // 1. CHUẨN HÓA NGAY TỪ ĐẦU (Cực kỳ quan trọng)
-            content = content.Trim().ToLower();
-
-            var query = unitOfWork.Posts.QueryNoTracking();
-
-            if (content.StartsWith("#"))
-            {
-                query = query.Where(p => p.PostHashtags.Any(ph => ph.Hashtag.Name.ToLower() == content));
-            }
-            else
-            {
-                query = query.Where(p => EF.Functions.Like(p.Content, $"%{content}%"));
-            }
-
-            if (request.Cursor.HasValue)
-            {
-                query = query.Where(p => p.CreatedAt < request.Cursor.Value);
-            }
-
-            var posts = await query
-                .OrderByDescending(p => p.CreatedAt)
-                .Take(request.PageSize + 1)
-                .ProjectTo<ResponsePostDto>(mapper.ConfigurationProvider, new { currentUserId = currentUserId })
-                .ToListAsync();
-
+            var posts = await unitOfWork.Posts.GetSearchPostsAsync(content, request.Cursor, request.PageSize, currentUserId);
             return PaginationHelper.ToCursorPaged(posts, request.PageSize, p => p.CreatedAt);
         });
 
@@ -434,30 +326,33 @@ public class PostServices(IUnitOfWork unitOfWork, IMapper mapper, ICurrentUserSe
         if (!Guid.TryParse(currentUser.UserId, out var userId)) return Result.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
         await cache.BumpScopeVersionAsync($"post:detail:rev:{postId}");
         await cache.BumpScopeVersionAsync($"posts:feed:scope:{userId}");
-        // 1. Kiểm tra xem bài post có tồn tại không
-        var existingPost = await unitOfWork.Posts.AnyAsync(p => p.Id == postId);
-        if (!existingPost)
+
+        var post = await unitOfWork.Posts.GetByIdAsync(postId);
+        if (post == null)
             return Result.NotFound(new Error(ErrorCodes.NotFound, "Post does not exist"));
 
-        // 2. Kiểm tra xem user đã like bài post chưa
-        var existingLike = await unitOfWork.Likes.Query()
-            .IgnoreQueryFilters()
-            .FirstOrDefaultAsync(l => l.PostId == postId && l.UserId == userId);
-        // IgnoreQueryFilters() để bỏ qua global filter IsDeleted, vì có thể user đã like rồi nhưng sau đó bị soft delete, nên vẫn phải kiểm tra để toggle lại
+        var existingLike = await unitOfWork.Posts.GetLikeAsync(userId, postId, includeDeleted: true);
+        bool isNowLiked = false;
 
         if (existingLike == null)
         {
             var newLike = new Like(userId, postId);
-            unitOfWork.Likes.Add(newLike);
+            unitOfWork.Posts.AddLike(newLike);
+            isNowLiked = true;
         }
         else
         {
-            existingLike.ToggleDeleted(); // toggle
-            unitOfWork.Likes.Update(existingLike);
+            existingLike.ToggleDeleted();
+            unitOfWork.Posts.UpdateLike(existingLike);
+            isNowLiked = !existingLike.IsDeleted;
         }
         try
         {
             await unitOfWork.SaveChangesAsync();
+            if (isNowLiked)
+            {
+                await notificationServices.CreateAndSendNotificationAsync(post.UserId, userId, NotificationType.LikePost, "liked your post.", postId);
+            }
             return Result.Success();
         }
         catch (Exception ex)
@@ -467,6 +362,3 @@ public class PostServices(IUnitOfWork unitOfWork, IMapper mapper, ICurrentUserSe
         }
     }
 }
-
-
-

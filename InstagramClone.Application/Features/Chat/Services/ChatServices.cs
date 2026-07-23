@@ -1,9 +1,6 @@
-using InstagramClone.Application.Features.Chat.DTOs;
-using InstagramClone.Application.Features.Chat.DTOs;
+using InstagramClone.Application.Common;
 using InstagramClone.Application.Common.DTOs;
-using InstagramClone.Application.Features.Posts.DTOs;
-using InstagramClone.Application.Common.DTOs;
-using InstagramClone.Application.Interfaces;
+using InstagramClone.Application.Features.Chat.DTOs;
 using InstagramClone.Application.Interfaces.Caching;
 using InstagramClone.Application.Interfaces.Chats;
 using InstagramClone.Application.Interfaces.Data;
@@ -12,56 +9,45 @@ using InstagramClone.Common.Constants;
 using InstagramClone.Common.Results;
 using InstagramClone.Domain.Entities;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.SignalR;
-using Microsoft.EntityFrameworkCore;
-using Serilog;
-using System.Xml.XPath;
 
-using AutoMapper;
-using AutoMapper.QueryableExtensions;
-using InstagramClone.Application.Common;
-
-namespace InstagramClone.Application.Features.Chat.Services{
+namespace InstagramClone.Application.Features.Chat.Services
+{
     public class ChatServices(
         IUnitOfWork unitOfWork,
         ICurrentUserService currentUser,
         ICacheService cache,
         IChatNotificationService chatNotificationService,
-        IStorageServices storageServices,
-        IMapper mapper
+        IStorageServices storageServices
         ) : IChatService
     {
-        // 
         public async Task<Result<bool>> AddMemberToGroupAsync(string targetUserIdStr, Guid chatRoomId)
         {
             if (!Guid.TryParse(currentUser.UserId, out var currentUserId)) return Result<bool>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
             if (!Guid.TryParse(targetUserIdStr, out var targetUserId)) return Result<bool>.Failure(new Error(ErrorCodes.BadRequest, "Invalid Target User ID"));
 
-            var isPrivate = await unitOfWork.Users.QueryNoTracking().FirstOrDefaultAsync(u => u.Id == targetUserId && u.IsPrivateAccount == false);
-            if (isPrivate == null) return Result<bool>.Failure(new Error(ErrorCodes.Failure, "User is private"));
+            var isPrivate = await unitOfWork.Users.GetByIdAsync(targetUserId);
+            if (isPrivate == null || isPrivate.IsPrivateAccount) return Result<bool>.Failure(new Error(ErrorCodes.Failure, "User is private or does not exist"));
 
             // 1. Kiểm tra xem người thực hiện lệnh có ở trong nhóm không
-            var isCurrentMember = await unitOfWork.ChatParticipants.QueryNoTracking()
-                .AnyAsync(cp => cp.ChatRoomId == chatRoomId && cp.UserId == currentUserId);
+            var isCurrentMember = await unitOfWork.Chats.IsParticipantAsync(chatRoomId, currentUserId);
             if (!isCurrentMember)
-                return Result<bool>.Failure(new Error(ErrorCodes.Failure, "user is already in the group"));
+                return Result<bool>.Failure(new Error(ErrorCodes.Failure, "You are not a member of this group"));
 
             // 2. Kiểm tra xem targetUserId đã là thành viên chưa
-            var isTargetAlreadyMember = await unitOfWork.ChatParticipants.QueryNoTracking()
-                .AnyAsync(cp => cp.ChatRoomId == chatRoomId && cp.UserId == targetUserId);
+            var isTargetAlreadyMember = await unitOfWork.Chats.IsParticipantAsync(chatRoomId, targetUserId);
             if (isTargetAlreadyMember)
                 return Result<bool>.Failure(new Error(ErrorCodes.Failure, "user is member"));
 
             // 3. Thêm thành viên mới
             var newParticipant = new ChatParticipant(chatRoomId, targetUserId);
-            unitOfWork.ChatParticipants.Add(newParticipant);
+            unitOfWork.Chats.AddParticipant(newParticipant);
             await unitOfWork.SaveChangesAsync();
 
             // 4. Dọn Cache Inbox cho người mới để họ thấy nhóm này hiện lên sidebar
             await cache.RemoveAsync($"chat:inbox:{targetUserId}");
 
             // 5. Gửi thông báo SignalR (Dùng ChatNotificationService của bạn)
-            var room = await unitOfWork.ChatRooms.GetByIdAsync(chatRoomId);
+            var room = await unitOfWork.Chats.GetRoomByIdAsync(chatRoomId);
             await chatNotificationService.NotifyNewChatRoomAsync(new List<string> { targetUserId.ToString() }, chatRoomId, $"You have been added to group {room?.Name}");
 
             return Result<bool>.Success(true);
@@ -71,42 +57,39 @@ namespace InstagramClone.Application.Features.Chat.Services{
         {
             if (!Guid.TryParse(currentUser.UserId, out var currentUserId)) return Result<bool>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
 
-            var participant = await unitOfWork.ChatParticipants.Query().FirstOrDefaultAsync(cp => cp.ChatRoomId == chatRoomId && cp.UserId == currentUserId);
+            var participant = await unitOfWork.Chats.GetParticipantAsync(chatRoomId, currentUserId);
             if (participant == null)
                 return Result<bool>.Failure(new Error(ErrorCodes.Failure, "ChatRoom or User are not found"));
 
-            unitOfWork.ChatParticipants.Remove(participant);
+            unitOfWork.Chats.RemoveParticipant(participant);
             await unitOfWork.SaveChangesAsync();
 
             await cache.RemoveAsync($"chat:inbox:{currentUserId}");
 
             return Result<bool>.Success(true);
         }
+
         public async Task<Result<bool>> RemoveMemberFromGroupAsync(string targetUserIdStr, Guid chatRoomId)
         {
             if (!Guid.TryParse(currentUser.UserId, out var currentUserId)) return Result<bool>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
             if (!Guid.TryParse(targetUserIdStr, out var targetUserId)) return Result<bool>.Failure(new Error(ErrorCodes.BadRequest, "Invalid Target User ID"));
 
             // 1. Logic check quyền: Admin mới được xóa người khác. 
-            var requesterInfo = await unitOfWork.ChatParticipants.QueryNoTracking()
-                .Where(cp => cp.ChatRoomId == chatRoomId && cp.UserId == currentUserId)
-                .Select(cp => new { cp.IsAdmin })
-                .FirstOrDefaultAsync();
+            var isAdmin = await unitOfWork.Chats.IsRoomAdminAsync(chatRoomId, currentUserId);
 
-            if (requesterInfo == null || !requesterInfo.IsAdmin)
+            if (!isAdmin)
             {
                 return Result<bool>.Failure(new Error(ErrorCodes.Failure, "chatroom not found or user not an admin"));
             }
 
-            if (currentUserId == targetUserId) return Result<bool>.Failure(new Error(ErrorCodes.Failure,"currentUser is targetUser"));
+            if (currentUserId == targetUserId) return Result<bool>.Failure(new Error(ErrorCodes.Failure, "currentUser is targetUser"));
 
             // 2. Tìm thành viên cần xóa
-            var targetParticipant = await unitOfWork.ChatParticipants.Query()
-                .FirstOrDefaultAsync(cp => cp.ChatRoomId == chatRoomId && cp.UserId == targetUserId);
+            var targetParticipant = await unitOfWork.Chats.GetParticipantAsync(chatRoomId, targetUserId);
 
             if (targetParticipant == null) return Result<bool>.Failure(new Error(ErrorCodes.Failure, "chatroom or user not found"));
 
-            unitOfWork.ChatParticipants.Remove(targetParticipant);
+            unitOfWork.Chats.RemoveParticipant(targetParticipant);
             await unitOfWork.SaveChangesAsync();
 
             // 3. Quan trọng: Invalidate Cache cho người bị xóa
@@ -118,20 +101,19 @@ namespace InstagramClone.Application.Features.Chat.Services{
         public async Task<Result<Guid>> CreateGroupRoomAsync(CreateGroupDto groupDto)
         {
             if (!Guid.TryParse(currentUser.UserId, out var currentUserId)) return Result<Guid>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
-            var nameCurrentUser = await unitOfWork.Users.QueryNoTracking().Where(u => u.Id == currentUserId).Select(u => u.UserName).FirstOrDefaultAsync();
+            var nameCurrentUser = (await unitOfWork.Users.GetByIdAsync(currentUserId))?.UserName;
             
             var newChatRoom = new ChatRoom(true, groupDto.GroupName);
-            unitOfWork.ChatRooms.Add(newChatRoom);
+            unitOfWork.Chats.AddRoom(newChatRoom);
 
             var participants = groupDto.MemberIds.Select(memberIdStr => new ChatParticipant(newChatRoom.Id, Guid.Parse(memberIdStr))).ToList();
-            //
             participants.Add(new ChatParticipant(newChatRoom.Id, currentUserId, true));
 
-            unitOfWork.ChatParticipants.AddRange(participants);
+            unitOfWork.Chats.AddParticipants(participants);
             await unitOfWork.SaveChangesAsync();
 
             // Thông báo cho tất cả thành viên trong nhóm về phòng chat mới (nếu cần)
-            await chatNotificationService.NotifyNewChatRoomAsync(groupDto.MemberIds, newChatRoom.Id, $"{nameCurrentUser} added you to group {newChatRoom.Name}"!);
+            await chatNotificationService.NotifyNewChatRoomAsync(groupDto.MemberIds, newChatRoom.Id, $"{nameCurrentUser} added you to group {newChatRoom.Name}");
 
             return Result<Guid>.Success(newChatRoom.Id);
         }
@@ -140,17 +122,13 @@ namespace InstagramClone.Application.Features.Chat.Services{
         {
             if (!Guid.TryParse(currentUser.UserId, out var currentUserId)) return Result<Guid>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
             if (!Guid.TryParse(targetUserIdStr, out var targetUserId)) return Result<Guid>.Failure(new Error(ErrorCodes.BadRequest, "Invalid Target User ID"));
-            var nameCurrentUser = unitOfWork.Users.QueryNoTracking().Where(u => u.Id == currentUserId).Select(u => u.UserName).FirstOrDefault();
+            var nameCurrentUser = (await unitOfWork.Users.GetByIdAsync(currentUserId))?.UserName;
 
             if (currentUserId == targetUserId)
                 return Result<Guid>.Failure(new Error(ErrorCodes.Failure, "currentUser is targerUser"));
 
             // Kiểm tra xem đã có phòng chat riêng giữa 2 người chưa
-            var existingChatRoom = await unitOfWork.ChatRooms.QueryNoTracking()
-                .Where(cr => cr.IsGroupChat == false)
-                .Where(cr => cr.ChatParticipant.Any(cp => cp.UserId == currentUserId))
-                .Where(cr => cr.ChatParticipant.Any(cp => cp.UserId == targetUserId))
-                .FirstOrDefaultAsync();
+            var existingChatRoom = await unitOfWork.Chats.GetPrivateRoomAsync(currentUserId, targetUserId);
 
             if (existingChatRoom != null)
             {
@@ -158,9 +136,9 @@ namespace InstagramClone.Application.Features.Chat.Services{
             }
             // Nếu chưa có, tạo mới
             var newChatRoom = new ChatRoom(false, "");
-            unitOfWork.ChatRooms.Add(newChatRoom);
+            unitOfWork.Chats.AddRoom(newChatRoom);
 
-            unitOfWork.ChatParticipants.AddRange(new[]
+            unitOfWork.Chats.AddParticipants(new[]
             {
                 new ChatParticipant(newChatRoom.Id, currentUserId),
                 new ChatParticipant(newChatRoom.Id, targetUserId)
@@ -169,8 +147,6 @@ namespace InstagramClone.Application.Features.Chat.Services{
             await unitOfWork.SaveChangesAsync();
 
             // Thông báo cho người dùng liên quan về phòng chat mới (nếu cần)
-            // Chúng ta dùng Clients.User(targetUserId) để bắn tin cho đúng người đó
-            // SignalR sẽ tự tìm tất cả các ConnectionId của User B để gửi
             await chatNotificationService.NotifyNewChatRoomPrivateAsync(targetUserId.ToString(), newChatRoom.Id, nameCurrentUser!);
 
             return Result<Guid>.Success(newChatRoom.Id);
@@ -181,24 +157,12 @@ namespace InstagramClone.Application.Features.Chat.Services{
             try
             {
                 if (!Guid.TryParse(currentUser.UserId, out var currentUserId)) return Result<CursorPagedResponse<MessageDto>>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
-                var isMember = await unitOfWork.ChatParticipants.AnyAsync(cp => cp.ChatRoomId == chatRoomId && cp.UserId == currentUserId);
+                var isMember = await unitOfWork.Chats.IsParticipantAsync(chatRoomId, currentUserId);
 
                 if (!isMember)
                     return Result<CursorPagedResponse<MessageDto>>.Failure(new Error(ErrorCodes.Failure, "user not a member"));
 
-                var query = unitOfWork.Messages.QueryNoTracking();
-
-                if (messagePagi.Cursor.HasValue)
-                {
-                    query = query.Where(m => m.CreatedAt < messagePagi.Cursor.Value);
-                }
-
-                var messages = await query
-                    .Where(m => m.ChatRoomId == chatRoomId)
-                    .OrderByDescending(m => m.CreatedAt)
-                    .Take(messagePagi.PageSize + 1)
-                    .ProjectTo<MessageDto>(mapper.ConfigurationProvider)
-                    .ToListAsync();
+                var messages = await unitOfWork.Chats.GetRoomMessagesAsync(chatRoomId, messagePagi.Cursor, messagePagi.PageSize);
 
                 var mess = PaginationHelper.ToCursorPaged(messages, messagePagi.PageSize, m => m.CreatedAt);
                
@@ -211,7 +175,6 @@ namespace InstagramClone.Application.Features.Chat.Services{
             }
             catch (Exception)
             {
-                // Log lỗi nếu cần
                 return Result<CursorPagedResponse<MessageDto>>.Failure(new Error(ErrorCodes.Failure, "An error occurred while retrieving messages."));
             }
         }
@@ -226,11 +189,7 @@ namespace InstagramClone.Application.Features.Chat.Services{
                 cacheKey,
                 factory: async () =>
                 {
-                    return await unitOfWork.ChatRooms.QueryNoTracking()
-                        .Where(cr => cr.ChatParticipant.Any(cp => cp.UserId == currentUserId))
-                        .ProjectTo<ChatRoomDto>(mapper.ConfigurationProvider, new { currentUserId = currentUserId })
-                        .OrderByDescending(cr => cr.LastestMessageAt)
-                        .ToListAsync();
+                    return await unitOfWork.Chats.GetUserChatRoomsAsync(currentUserId);
                 },
                 TimeSpan.FromSeconds(30) // Cache ngắn vì Inbox cần cập nhật nhanh
             );
@@ -238,14 +197,11 @@ namespace InstagramClone.Application.Features.Chat.Services{
             return Result<List<ChatRoomDto>>.Success(rooms);
         }
 
-        
         public async Task<Result<bool>> MarkRoomAsReadAsync(Guid chatRoomId)
         {
             if (!Guid.TryParse(currentUser.UserId, out var currentUserId)) return Result<bool>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
 
-            var rowsAffected = await unitOfWork.ChatParticipants.Query()
-                .Where(m => m.ChatRoomId == chatRoomId && m.UserId == currentUserId)
-                .ExecuteUpdateAsync(ex => ex.SetProperty(cp => cp.LastReadAt, DateTime.UtcNow));
+            var rowsAffected = await unitOfWork.Chats.MarkRoomAsReadAsync(chatRoomId, currentUserId);
 
             if (rowsAffected > 0)
             {
@@ -262,8 +218,7 @@ namespace InstagramClone.Application.Features.Chat.Services{
             if (!Guid.TryParse(currentUser.UserId, out var currentUserId)) return Result<MessageDto>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
 
             // 1. Kiểm tra xem người gửi có trong phòng không (Bảo mật)
-            var participant = await unitOfWork.ChatParticipants.Query()
-                .FirstOrDefaultAsync(cp => cp.ChatRoomId == request.ChatRoomId && cp.UserId == currentUserId);
+            var participant = await unitOfWork.Chats.GetParticipantAsync(request.ChatRoomId, currentUserId);
 
             if (participant == null)
                 return Result<MessageDto>.Failure(new Error(ErrorCodes.Forbid, "You do not have permission to message in this room."));
@@ -271,15 +226,12 @@ namespace InstagramClone.Application.Features.Chat.Services{
             // 2. Tạo đối tượng tin nhắn mới
             var message = new Message(request.ChatRoomId, currentUserId, request.Type, request.Content, request.MediaUrl, request.ReplyToMessageId);
 
-            unitOfWork.Messages.Add(message);
+            unitOfWork.Chats.AddMessage(message);
 
             // 3. Cập nhật mốc LastReadAt cho chính người gửi (vì mình gửi thì coi như đã xem)
             participant.UpdateLastRead();
 
             await unitOfWork.SaveChangesAsync();
-
-            // 4. Cập nhật Cache Inbox (Như chúng ta đã bàn - cộng dồn số tin chưa đọc cho người khác)
-            // Sau khi lưu xong, Mạnh gọi hàm UpdateInboxCacheAsync cho những người còn lại trong phòng nhé
 
             // 5. Trả về DTO để Controller bắn qua SignalR
             var messdto = new MessageDto
@@ -294,14 +246,13 @@ namespace InstagramClone.Application.Features.Chat.Services{
             };
 
             await chatNotificationService.NotifyReceiveMessageAsync(message.ChatRoomId, messdto);
-
             return Result<MessageDto>.Success(messdto);
         }
 
         public async Task<Result<MessageDto>> UploadMessageMediaAsync(IFormFile file, Guid chatRoomId)
         {
             if (!Guid.TryParse(currentUser.UserId, out var currentUserId)) return Result<MessageDto>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
-            var isMember = await unitOfWork.ChatParticipants.AnyAsync(cp => cp.ChatRoomId == chatRoomId && cp.UserId == currentUserId);
+            var isMember = await unitOfWork.Chats.IsParticipantAsync(chatRoomId, currentUserId);
             if (!isMember) return Result<MessageDto>.Failure(new Error(ErrorCodes.Failure, "User not a member"));
 
             // 1. Upload ảnh
@@ -333,8 +284,7 @@ namespace InstagramClone.Application.Features.Chat.Services{
             if (!Guid.TryParse(currentUser.UserId, out var currentUserId)) return Result<bool>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
 
             // 1. Tìm tin nhắn và kiểm tra quyền chủ sở hữu
-            var message = await unitOfWork.Messages.Query()
-                .FirstOrDefaultAsync(m => m.Id == messageId && m.SenderId == currentUserId);
+            var message = await unitOfWork.Chats.GetUserMessageByIdAsync(messageId, currentUserId);
 
             if (message == null)
                 return Result<bool>.Failure(new Error(ErrorCodes.NotFound, "Message not found or you do not have permission to unsend."));
@@ -349,9 +299,6 @@ namespace InstagramClone.Application.Features.Chat.Services{
 
             await unitOfWork.SaveChangesAsync();
 
-            // 3. Xóa Cache Inbox (Để người khác thấy tin nhắn cuối cùng đã bị thu hồi)
-            // Bạn có thể gọi hàm UpdateInboxCacheAsync tại đây nếu muốn
-
             await chatNotificationService.NotifyMessageUnsentAsync(message.ChatRoomId, messageId);
             return Result<bool>.Success(true);
         }
@@ -361,19 +308,18 @@ namespace InstagramClone.Application.Features.Chat.Services{
             if (!Guid.TryParse(currentUser.UserId, out var currentUserId)) return Result<MessageReaction>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
 
             // 1. Kiểm tra xem tin nhắn có tồn tại không
-            var message = await unitOfWork.Messages.QueryNoTracking().FirstOrDefaultAsync(m => m.Id == messageId);
+            var message = await unitOfWork.Chats.GetMessageByIdAsync(messageId);
 
             if (message == null) return Result<MessageReaction>.Failure(new Error(ErrorCodes.NotFound, "Message does not exist."));
             // 2. Kiểm tra xem User này đã từng thả cảm xúc vào tin này chưa
-            var existingReaction = await unitOfWork.MessageReactions.Query()
-                .FirstOrDefaultAsync(mr => mr.MessageId == messageId && mr.UserId == currentUserId);
+            var existingReaction = await unitOfWork.Chats.GetReactionAsync(messageId, currentUserId);
 
             if (existingReaction != null)
             {
                 if (existingReaction.Emoji == emoji)
                 {
                     // Nếu bấm lại đúng Emoji cũ -> Xóa (Toggle off)
-                    unitOfWork.MessageReactions.Remove(existingReaction);
+                    unitOfWork.Chats.RemoveReaction(existingReaction);
                 }
                 else
                 {
@@ -385,7 +331,7 @@ namespace InstagramClone.Application.Features.Chat.Services{
             {
                 // 3. Chưa có thì tạo mới
                 existingReaction = new MessageReaction(messageId, currentUserId, emoji);
-                unitOfWork.MessageReactions.Add(existingReaction);
+                unitOfWork.Chats.AddReaction(existingReaction);
             }
 
             await unitOfWork.SaveChangesAsync();

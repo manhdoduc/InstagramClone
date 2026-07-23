@@ -1,9 +1,10 @@
-﻿using InstagramClone.Application.Common.DTOs;
+using InstagramClone.Application.Common.DTOs;
 using InstagramClone.Application.Features.Chat.DTOs;
 using InstagramClone.Application.Interfaces.Chats;
 using InstagramClone.Domain.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using InstagramClone.API.Filters;
 
 namespace InstagramClone.API.Controllers
 {
@@ -108,6 +109,7 @@ namespace InstagramClone.API.Controllers
         // DELETE: api/chat/messages/{messageId}
         // "Thu h?i tin nh?n" b?n ch?t là xóa tin nh?n dó ? phía hi?n th? công khai => Nên dùng DELETE thay vì POST unsend
         [HttpDelete("messages/{messageId:guid}")]
+        [AuthorizeOwnership(typeof(Message), "messageId")]
         public async Task<ActionResult<bool>> UnsendMessage([FromRoute] Guid messageId)
         {
             var result = await chatService.UnsendMessageAsync(messageId);

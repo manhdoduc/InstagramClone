@@ -9,6 +9,7 @@ using InstagramClone.Application.Interfaces.Caching;
 using InstagramClone.Application.Interfaces.Chats;
 using InstagramClone.Application.Interfaces.Data;
 using InstagramClone.Application.Interfaces.Services;
+using InstagramClone.Common.Constants;
 using InstagramClone.Common.Models.Config;
 using InstagramClone.Infrastructure.Caching;
 using InstagramClone.Infrastructure.Identity;
@@ -42,6 +43,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICommentServices, CommentServices>();
         services.AddScoped<IFollowService, FollowServices>();
         services.AddScoped<IChatService, ChatServices>();
+        services.AddScoped<InstagramClone.Application.Features.Notifications.Services.INotificationServices, InstagramClone.Application.Features.Notifications.Services.NotificationServices>();
 
         services.AddAutoMapper(cfg => cfg.AddMaps(AppDomain.CurrentDomain.GetAssemblies()));
 
@@ -57,6 +59,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IStorageServices, LocalStorageServices>();
         services.AddScoped<ICurrentUserService, CurrentUserServices>();
         services.AddScoped<IChatNotificationService, ChatNotificationService>();
+        services.AddScoped<ISocialNotificationService, SocialNotificationService>();
         services.AddScoped<ICacheService, MemoryCacheService>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
 
@@ -129,7 +132,7 @@ public static class ServiceCollectionExtensions
                 {
                     var accessToken = context.Request.Query["access_token"];
                     var path = context.HttpContext.Request.Path;
-                    if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/chathub"))
+                    if (!string.IsNullOrEmpty(accessToken) && (path.StartsWithSegments("/chathub") || path.StartsWithSegments("/hubs/notifications")))
                     {
                         context.Token = accessToken;
                     }
@@ -138,13 +141,23 @@ public static class ServiceCollectionExtensions
             };
         });
 
+        services.AddAuthorization(options =>
+        {
+            options.AddPolicy("AdminOnly", policy => policy.RequireRole(RoleNames.Administrator));
+            options.AddPolicy("UserOnly", policy => policy.RequireRole(RoleNames.User));
+        });
+
         return services;
     }
 
     public static IServiceCollection AddSwaggerAndApiServices(this IServiceCollection services, IConfiguration configuration)
     {
-        services.AddControllers();
+        services.AddControllers(options =>
+        {
+            options.Filters.Add<InstagramClone.API.Filters.OwnershipAuthorizationFilter>();
+        });
         services.AddEndpointsApiExplorer();
+        services.AddProblemDetails();
         services.AddSwaggerGen(options =>
         {
             options.SwaggerDoc("v1", new OpenApiInfo
@@ -289,7 +302,7 @@ public static class ServiceCollectionExtensions
         return services;
     }
 
-    public static IServiceCollection AddHealthCheckServices(this IServiceCollection services)
+    public static IServiceCollection AddHealthCheckServices(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddHealthChecks()
             .AddCheck("self", () => Microsoft.Extensions.Diagnostics.HealthChecks.HealthCheckResult.Healthy("Application is running"), tags: ["api"])
@@ -297,7 +310,13 @@ public static class ServiceCollectionExtensions
                 name: "database",
                 failureStatus: Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Unhealthy,
                 tags: ["db", "sql"]
-            );
+            )
+            .AddProcessAllocatedMemoryHealthCheck(maximumMegabytesAllocated: 1024, name: "Process Memory", tags: ["system"])
+            .AddDiskStorageHealthCheck(setup => 
+            {
+                setup.AddDrive("C:\\", minimumFreeMegabytes: 1024); 
+            }, name: "Disk Storage", tags: ["system"])
+            .AddUrlGroup(new Uri("http://seq_logs:5341/health"), name: "Seq Logging Server", tags: ["infrastructure", "logging"]);
 
         services.AddHealthChecksUI(setup =>
         {
@@ -305,7 +324,7 @@ public static class ServiceCollectionExtensions
             setup.MaximumHistoryEntriesPerEndpoint(50);
             setup.AddHealthCheckEndpoint("Instagram Api", "/healthz");
         })
-        .AddInMemoryStorage();
+        .AddSqlServerStorage(configuration.GetConnectionString("DefaultConnection")!);
 
         return services;
     }

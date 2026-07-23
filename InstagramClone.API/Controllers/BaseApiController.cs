@@ -22,7 +22,6 @@ public abstract class BaseApiController : ControllerBase
                 statusCode: StatusCodes.Status500InternalServerError,
                 title: "An error occurred",
                 detail: "No error detail provided"
-
                 );
         }
 
@@ -34,7 +33,6 @@ public abstract class BaseApiController : ControllerBase
                 statusCode: StatusCodes.Status404NotFound,
                 title: "Resource not found",
                 detail: errorDetails
-
             ),
             ErrorCodes.Validation => ValidationProblem(
                 title: "Validation failed",

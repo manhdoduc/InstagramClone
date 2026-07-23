@@ -24,18 +24,18 @@ public class ChatNotificationService(IHubContext<ChatHub, IChatHub> hubContext) 
     // Thông báo khi có tin nhắn mới (Dùng cho cả Text và Media)
     public async Task NotifyReceiveMessageAsync(Guid chatRoomId, MessageDto message)
     {
-        await hubContext.Clients.Group(chatRoomId.ToString()).ReceiveMessage(message);
+        await hubContext.Clients.Group(chatRoomId.ToString().ToLower()).ReceiveMessage(message);
     }
 
     // Thông báo khi tin nhắn bị thu hồi
     public async Task NotifyMessageUnsentAsync(Guid chatRoomId, Guid messageId)
     {
-        await hubContext.Clients.Group(chatRoomId.ToString()).MessageUnsent(messageId);
+        await hubContext.Clients.Group(chatRoomId.ToString().ToLower()).MessageUnsent(messageId);
     }
 
     // Thông báo khi có người thả tim
     public async Task NotifyMessageReactedAsync(Guid chatRoomId, Guid messageId, string userId, string emoji)
     {
-        await hubContext.Clients.Group(chatRoomId.ToString()).MessageReacted(messageId, userId, emoji);
+        await hubContext.Clients.Group(chatRoomId.ToString().ToLower()).MessageReacted(messageId, userId, emoji);
     }
 }

@@ -5,19 +5,11 @@ namespace InstagramClone.Application.Interfaces.Data;
 
 public interface IUnitOfWork
 {
-    IGenericRepository<Post> Posts { get; }
-    IGenericRepository<Hashtag> Hashtags { get; }
-    IGenericRepository<PostHashtag> PostHashtags { get; }
-    IGenericRepository<SavedPost> SavedPosts { get; }
-    IGenericRepository<Like> Likes { get; }
-    IGenericRepository<AppUser> Users { get; }
-    IGenericRepository<Follow> Follows { get; }
-    IGenericRepository<Comment> Comments { get; }
-    IGenericRepository<CommentLike> CommentLikes { get; }
-    IGenericRepository<ChatRoom> ChatRooms { get; }
-    IGenericRepository<ChatParticipant> ChatParticipants { get; }
-    IGenericRepository<Message> Messages { get; }
-    IGenericRepository<MessageReaction> MessageReactions { get; }
+    IUserRepository Users { get; }
+    IPostRepository Posts { get; }
+    ICommentRepository Comments { get; }
+    IChatRepository Chats { get; }
+    INotificationRepository Notifications { get; }
     
     Task<int> SaveChangesAsync();
 }
