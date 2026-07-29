@@ -20,7 +20,6 @@ namespace InstagramClone.Application.Features.Follows.Services
         IUnitOfWork unitOfWork,
         ICurrentUserService currentUser,
         ICacheService cache,
-        IMapper mapper,
         INotificationServices notificationServices
         ) : IFollowService
     {

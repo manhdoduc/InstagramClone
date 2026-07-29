@@ -1,6 +1,5 @@
 using AutoMapper;
 using InstagramClone.Application.Features.Chat.DTOs;
-using InstagramClone.Application.Features.Chat.DTOs;
 using InstagramClone.Domain.Entities;
 
 namespace InstagramClone.Application.Features.Chat.Mappings;

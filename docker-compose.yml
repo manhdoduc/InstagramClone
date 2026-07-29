@@ -7,11 +7,30 @@ services:
       context: .
       dockerfile: InstagramClone.API/Dockerfile
     ports:
-      - "5063:5063"
+      - "5063:8080"
     depends_on:
-      - mssql
-      - seq_logs
-      - redis
+      mssql:
+        condition: service_healthy
+      seq_logs:
+        condition: service_started
+      redis:
+        condition: service_started
+    volumes:
+      - media_data:/app/wwwroot/media
+    networks:
+      - app-network
+  instagramclone.web:
+    image: ${DOCKER_REGISTRY-}instagramcloneweb
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - ApiSettings__BaseUrl=http://instagramclone.api:8080
+    build:
+      context: .
+      dockerfile: InstagramClone.Web/Dockerfile
+    ports:
+      - "5242:8080"
+    depends_on:
+      - instagramclone.api
     networks:
       - app-network
   redis:
@@ -29,17 +48,17 @@ services:
     environment:
       - ACCEPT_EULA=Y
       - SA_PASSWORD=${DB_PASSWORD}
-      - MSSQL_DATA_DIR=/var/opt/sqlserver/data
-      - MSSQL_LOG_DIR=/var/opt/sqlserver/log
-      - MSSQL_BACKUP_DIR=/var/opt/sqlserver/backup 
     restart: unless-stopped
     ports:
       - "1433:1433"
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P \"${DB_PASSWORD}\" -C -Q \"SELECT 1\" || /opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P \"${DB_PASSWORD}\" -Q \"SELECT 1\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
     volumes:
       - sqlsystem:/var/opt/mssql
-      - sqldata:/var/opt/sqlserver/data
-      - sqllog:/var/opt/sqlserver/log
-      - sqlbackup:/var/opt/sqlserver/backup 
     networks:
       - app-network
   seq_logs:
@@ -63,7 +82,6 @@ services:
     networks:
       - app-network
     restart: always
-    
 
 networks:
   app-network:
@@ -71,6 +89,4 @@ networks:
 
 volumes:
   sqlsystem:
-  sqldata:
-  sqllog:
-  sqlbackup:
+  media_data:

@@ -21,7 +21,6 @@ public class CommentServices(
     IUnitOfWork unitOfWork,
     ICurrentUserService currentUser,
     ICacheService cache,
-    IMapper mapper,
     INotificationServices notificationServices
     ) : ICommentServices
 {

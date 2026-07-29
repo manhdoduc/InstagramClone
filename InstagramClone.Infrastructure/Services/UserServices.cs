@@ -6,17 +6,22 @@ using InstagramClone.Application.Interfaces.Data;
 using InstagramClone.Application.Interfaces.Services;
 using InstagramClone.Common.Constants;
 using InstagramClone.Common.Helper;
+using InstagramClone.Common.Models.Config;
 using InstagramClone.Common.Results;
 using InstagramClone.Domain.Constants;
 using InstagramClone.Domain.Enums;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace InstagramClone.Infrastructure.Services;
 public class UserServices(IStorageServices storageServices, 
                             ICurrentUserService currentUser, IUnitOfWork unitOfWork,
-                            ICacheService cache, IMapper mapper) : IUserServices
+                            ICacheService cache, 
+                            IOptions<MediaSettings> mediaSettingsOptions) : IUserServices
 {
+    private readonly MediaSettings _mediaSettings = mediaSettingsOptions.Value;
+
     public async Task<Result<string>> UploadAvatarAsync(IFormFile file)
     {
         // 1. Check if the user exists
@@ -29,7 +34,7 @@ public class UserServices(IStorageServices storageServices,
             return Result<string>.NotFound(new Error(ErrorCodes.NotFound, "User not found"));
 
         // 2. Upload file mới
-        var uploadResult = await storageServices.UploadImageAsync(file, userId.ToString(), "avatars", 500, 500);
+        var uploadResult = await storageServices.UploadImageAsync(file, userId.ToString(), "avatars", _mediaSettings.Avatar.MaxWidth, _mediaSettings.Avatar.MaxHeight);
         if (!uploadResult.IsSuccess)
         {
             return Result<string>.Failure(uploadResult.Errors);
@@ -184,9 +189,9 @@ public class UserServices(IStorageServices storageServices,
                 var userExists = await unitOfWork.Users.AnyAsync(u => u.Id == targetUserIdGuid);
                 if (!userExists) return null;
 
-                bool myAccount = userId == targetUserId;
+                bool myAccount = !string.IsNullOrEmpty(userId) && userId.Equals(targetUserId, StringComparison.OrdinalIgnoreCase);
 
-                if (!Guid.TryParse(userId, out var currentUserIdGuid)) return null;
+                _ = Guid.TryParse(userId, out var currentUserIdGuid);
                 var profile = await unitOfWork.Users.GetUserProfileAsync(targetUserIdGuid, currentUserIdGuid);
 
                 if (profile == null) return null;

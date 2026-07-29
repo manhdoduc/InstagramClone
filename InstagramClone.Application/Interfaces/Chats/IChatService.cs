@@ -1,16 +1,8 @@
-using InstagramClone.Application.Features.Chat.DTOs;
-using InstagramClone.Application.Features.Chat.DTOs;
 using InstagramClone.Application.Common.DTOs;
-using InstagramClone.Application.Features.Posts.DTOs;
-using InstagramClone.Application.Common.DTOs;
+using InstagramClone.Application.Features.Chat.DTOs;
 using InstagramClone.Common.Results;
 using InstagramClone.Domain.Entities;
 using Microsoft.AspNetCore.Http;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace InstagramClone.Application.Interfaces.Chats
 {

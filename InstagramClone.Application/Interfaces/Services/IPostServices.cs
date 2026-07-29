@@ -1,12 +1,6 @@
 using InstagramClone.Application.Common.DTOs;
 using InstagramClone.Application.Features.Posts.DTOs;
-using InstagramClone.Application.Common.DTOs;
 using InstagramClone.Common.Results;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace InstagramClone.Application.Interfaces.Services
 {
@@ -25,6 +19,7 @@ namespace InstagramClone.Application.Interfaces.Services
 
         Task<Result<CursorPagedResponse<ResponsePostDto>>> GetSavedPostsAsync(CursorPaginationRequest cursorPagination);
         Task<Result<CursorPagedResponse<ResponsePostDto>>> GetSearchPostsAsync(string content, CursorPaginationRequest request);
+        Task<Result<CursorPagedResponse<ResponsePostDto>>> GetUserPostsAsync(string targetUserId, CursorPaginationRequest request);
         Task<Result> ToggleLikeAsync(Guid postId);
     }
 }

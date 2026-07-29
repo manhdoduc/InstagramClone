@@ -1,35 +1,33 @@
-using AutoMapper;
 using InstagramClone.Application.Common;
 using InstagramClone.Application.Common.DTOs;
 using InstagramClone.Application.Features.Notifications.Services;
 using InstagramClone.Application.Features.Posts.DTOs;
-using InstagramClone.Application.Interfaces;
 using InstagramClone.Application.Interfaces.Caching;
 using InstagramClone.Application.Interfaces.Data;
 using InstagramClone.Application.Interfaces.Services;
 using InstagramClone.Common.Constants;
+using InstagramClone.Common.Models.Config;
 using InstagramClone.Common.Results;
 using InstagramClone.Domain.Entities;
 using InstagramClone.Domain.Enums;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Serilog;
-using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Text.RegularExpressions;
-using System.Threading.Tasks;
 
 namespace InstagramClone.Application.Features.Posts.Services;
 
 public class PostServices(
     IUnitOfWork unitOfWork,
-    IMapper mapper,
     ICurrentUserService currentUser,
     IStorageServices storageServices,
     ICacheService cache,
-    INotificationServices notificationServices
+    INotificationServices notificationServices,
+    IOptions<MediaSettings> mediaSettingsOptions
     ) : IPostServices
 {
+    private readonly MediaSettings _mediaSettings = mediaSettingsOptions.Value;
+
     public async Task<Result<string>> CreatePostAsync(CreatePostDto createPostDto)
     {
         // validate userId
@@ -47,11 +45,11 @@ public class PostServices(
         {
             foreach(var file in createPostDto.Files)
             {
-                var uploadResult = await storageServices.UploadImageAsync(file, userId.ToString(), "posts", 1080, 1350);
+                var uploadResult = await storageServices.UploadImageAsync(file, userId.ToString(), "posts", _mediaSettings.Post.MaxWidth, _mediaSettings.Post.MaxHeight);
 
                 if(!uploadResult.IsSuccess)
                 {
-                    throw new Exception($"Failed to upload file: {file.FileName}");
+                    return Result<string>.Failure(new Error(ErrorCodes.Failure, $"Failed to upload media file {file.FileName}: {uploadResult.Errors.FirstOrDefault().Description}"));
                 }
 
                 var mediaUrl = uploadResult.Value!;
@@ -92,7 +90,7 @@ public class PostServices(
             if(!saved)                    
             {
                 Log.Error("User {UserId} failed to save post {Content} to database", userId, createPostDto.Content);
-                return Result<string>.Failure(new Error("PostCreationFailed", "Failed to save post to database"));
+                return Result<string>.Failure(new Error(ErrorCodes.Failure, "Failed to save post to database"));
             }
                 
             Log.Information("User {UserId} created post {PostId} with {MediaCount} images", userId, newPost.Id, newPost.MediaItems.Count);
@@ -173,7 +171,7 @@ public class PostServices(
 
         var cachedFeed = await cache.GetOrCreateAsync<CursorPagedResponse<ResponsePostDto>>(cacheKey, factory: async () =>
         {
-            if (!Guid.TryParse(currentUser.UserId, out var userId)) return null;
+            if (!Guid.TryParse(currentUser.UserId, out var userId)) throw new InvalidOperationException("Invalid user ID"); // This should not happen if the user is authenticated
 
             // Lấy danh sách ID những người mình đang Follow (đã Accepted)
             var followingIds = await unitOfWork.Users.GetFollowingIdsAsync(userId);
@@ -308,7 +306,7 @@ public class PostServices(
         {
             if (string.IsNullOrWhiteSpace(content))
             {
-                return null;
+                throw new InvalidOperationException("Search content cannot be empty");
             }
 
             var posts = await unitOfWork.Posts.GetSearchPostsAsync(content, request.Cursor, request.PageSize, currentUserId);
@@ -360,5 +358,40 @@ public class PostServices(
             Log.Error("Toggle like failed for post {PostId} user {UserId}", postId, userId);
             return Result.Failure(new Error(ErrorCodes.Failure, "Failed to update like status."));
         }
+    }
+
+    public async Task<Result<CursorPagedResponse<ResponsePostDto>>> GetUserPostsAsync(string targetUserId, CursorPaginationRequest request)
+    {
+        if (!Guid.TryParse(currentUser.UserId, out var currentUserId))
+            return Result<CursorPagedResponse<ResponsePostDto>>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
+
+        if (!Guid.TryParse(targetUserId, out var targetUserGuid))
+            return Result<CursorPagedResponse<ResponsePostDto>>.Failure(new Error(ErrorCodes.BadRequest, "Invalid Target User ID"));
+
+        var targetUser = await unitOfWork.Users.GetByIdAsync(targetUserGuid);
+        if (targetUser == null)
+            return Result<CursorPagedResponse<ResponsePostDto>>.Failure(new Error(ErrorCodes.NotFound, "User not found"));
+
+        bool isMyAccount = currentUserId == targetUserGuid;
+        if (!isMyAccount && targetUser.IsPrivateAccount)
+        {
+            var follow = await unitOfWork.Users.GetFollowAsync(currentUserId, targetUserGuid);
+            if (follow == null || follow.Status != Domain.Enums.FollowStatus.Accepted)
+            {
+                return Result<CursorPagedResponse<ResponsePostDto>>.Failure(new Error(ErrorCodes.Forbid, "This account is private."));
+            }
+        }
+
+        var profileRev = await cache.GetScopeVersionAsync($"user:profile:rev:{targetUserId}");
+        var userScope = await cache.GetScopeVersionAsync($"posts:feed:scope:{currentUserId}");
+        var cacheKey = $"posts:user:{targetUserId}:{currentUserId}:{profileRev}:{userScope}:{request.PageSize}:{request.Cursor}";
+
+        var cachedPosts = await cache.GetOrCreateAsync<CursorPagedResponse<ResponsePostDto>>(cacheKey, factory: async () =>
+        {
+            var posts = await unitOfWork.Posts.GetUserPostsAsync(targetUserGuid, request.Cursor, request.PageSize, currentUserId);
+            return PaginationHelper.ToCursorPaged(posts, request.PageSize, p => p.CreatedAt);
+        });
+
+        return Result<CursorPagedResponse<ResponsePostDto>>.Success(cachedPosts!);
     }
 }

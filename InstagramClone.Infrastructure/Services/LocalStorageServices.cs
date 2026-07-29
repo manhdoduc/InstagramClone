@@ -1,16 +1,19 @@
 using InstagramClone.Application.Interfaces.Services;
 using InstagramClone.Common.Constants;
+using InstagramClone.Common.Models.Config;
 using InstagramClone.Common.Results;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Options;
 using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Processing;
 using SixLabors.ImageSharp.Formats.Jpeg;
 
 namespace InstagramClone.Infrastructure.Services
 {
-    public class LocalStorageServices(IWebHostEnvironment webHostEnvironment) : IStorageServices
+    public class LocalStorageServices(IWebHostEnvironment webHostEnvironment, IOptions<MediaSettings> mediaSettingsOptions) : IStorageServices
     {
+        private readonly MediaSettings _mediaSettings = mediaSettingsOptions.Value;
         public readonly string[] _allowExtention = new[] { ".jpg", ".jpeg", ".png", ".webp" };
 
         public async Task<Result<string>> UploadImageAsync(IFormFile file, string userId, string folderType, int maxWidth, int maxHeight)
@@ -21,9 +24,9 @@ namespace InstagramClone.Infrastructure.Services
                 return Result<string>.Failure(new Error(ErrorCodes.Failure, "File empty, file not empty"));
             }
 
-            if(file.Length > 5*1024*1024)
+            if(file.Length > _mediaSettings.MaxFileSizeBytes)
             {
-                return Result<string>.Failure(new Error(ErrorCodes.Failure, "File to Large, file < 5mb"));
+                return Result<string>.Failure(new Error(ErrorCodes.Failure, $"File too large, file must be <= {_mediaSettings.MaxFileSizeBytes / (1024 * 1024)}MB"));
             }
             // 2. Kiểm tra định dạng file có hợp lệ không (chỉ cho phép .jpg, .jpeg, .png, .webp)
             var extention = Path.GetExtension(file.FileName).ToLowerInvariant();
@@ -36,8 +39,14 @@ namespace InstagramClone.Infrastructure.Services
             {
                 // 3. Tạo đường dẫn lưu trữ: wwwroot/media/{folderType}/{userId}/
                 // Ví dụ: wwwroot/media/avatars/user123/
-                var folderPath = Path.Combine(webHostEnvironment.WebRootPath, "media", folderType, userId);
-                if(!Directory.Exists(folderPath)) 
+                var webRoot = webHostEnvironment.WebRootPath;
+                if (string.IsNullOrEmpty(webRoot))
+                {
+                    webRoot = Path.Combine(webHostEnvironment.ContentRootPath, "wwwroot");
+                }
+
+                var folderPath = Path.Combine(webRoot, "media", folderType, userId);
+                if (!Directory.Exists(folderPath)) 
                 {
                     Directory.CreateDirectory(folderPath);
                 }
@@ -84,11 +93,17 @@ namespace InstagramClone.Infrastructure.Services
                 return Result.Success();
             }
 
+            var webRoot = webHostEnvironment.WebRootPath;
+            if (string.IsNullOrEmpty(webRoot))
+            {
+                webRoot = Path.Combine(webHostEnvironment.ContentRootPath, "wwwroot");
+            }
+
             // Security: Resolve full path and ensure it stays within wwwroot to prevent path traversal
             var filePath = Path.GetFullPath(
-                Path.Combine(webHostEnvironment.WebRootPath, fileUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar)));
+                Path.Combine(webRoot, fileUrl.TrimStart('/').Replace('/', Path.DirectorySeparatorChar)));
 
-            if (!filePath.StartsWith(webHostEnvironment.WebRootPath, StringComparison.OrdinalIgnoreCase))
+            if (!filePath.StartsWith(webRoot, StringComparison.OrdinalIgnoreCase))
             {
                 return Result.Failure(new Error(ErrorCodes.Failure, "Invalid file path — access denied."));
             }

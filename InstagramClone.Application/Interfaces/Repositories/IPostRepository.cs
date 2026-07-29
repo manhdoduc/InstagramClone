@@ -22,6 +22,7 @@ public interface IPostRepository
     Task<List<ResponsePostDto>> GetFeedsAsync(List<Guid> followingIds, DateTime? cursor, int pageSize, Guid currentUserId);
     Task<List<ResponsePostDto>> GetSavedPostsAsync(Guid userId, DateTime? cursor, int pageSize);
     Task<List<ResponsePostDto>> GetSearchPostsAsync(string content, DateTime? cursor, int pageSize, Guid currentUserId);
+    Task<List<ResponsePostDto>> GetUserPostsAsync(Guid userId, DateTime? cursor, int pageSize, Guid currentUserId);
     Task<List<PostGridItemDto>> GetRecentPostsGridAsync(Guid userId, int limit);
 
     // Likes & Saves (Sub-entities/Relationships)

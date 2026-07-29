@@ -112,6 +112,23 @@ public class PostRepository(AppDbContext context, IMapper mapper) : IPostReposit
             .ToListAsync();
     }
 
+    public async Task<List<ResponsePostDto>> GetUserPostsAsync(Guid userId, DateTime? cursor, int pageSize, Guid currentUserId)
+    {
+        var query = context.Posts.AsNoTracking()
+            .Where(p => p.UserId == userId);
+
+        if (cursor.HasValue)
+        {
+            query = query.Where(p => p.CreatedAt < cursor.Value);
+        }
+
+        return await query
+            .OrderByDescending(p => p.CreatedAt)
+            .Take(pageSize + 1)
+            .ProjectTo<ResponsePostDto>(mapper.ConfigurationProvider, new { currentUserId })
+            .ToListAsync();
+    }
+
     public async Task<List<PostGridItemDto>> GetRecentPostsGridAsync(Guid userId, int limit)
     {
         return await context.Posts.AsNoTracking()

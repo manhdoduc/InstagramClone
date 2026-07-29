@@ -80,12 +80,13 @@ try
     // 2. Thêm đoạn này vào phần pipeline, PHẢI NẰM TRƯỚC app.UseAuthentication() và app.UseAuthorization()
     app.UseCors("InstagramCorsPolicy");
 
-    // Configure the HTTP request pipeline.
-    if (app.Environment.IsDevelopment())
+    // Enable Swagger UI across all environments for easy API testing
+    app.UseSwagger();
+    app.UseSwaggerUI(c =>
     {
-        app.UseSwagger();
-        app.UseSwaggerUI();
-    }
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "InstagramClone API v1");
+        c.RoutePrefix = "swagger";
+    });
 
     app.UseForwardedHeaders(new ForwardedHeadersOptions
     {
@@ -165,26 +166,28 @@ try
 
     Log.Information("Application started successfully.");
 
-    // Tự động apply migration khi app start (nếu có migration mới) - chỉ dùng cho môi trường dev/test, không nên dùng cho prod
-    //using (var scope = app.Services.CreateScope())
-    //{
-    //    var services = scope.ServiceProvider;
-    //    try
-    //    {
-    //        var context = services.GetRequiredService<AppDbContext>();
-    //        if (context.Database.GetPendingMigrations().Any())
-    //        {
-    //            Log.Information("Applying pending migrations...");
-    //            context.Database.Migrate();
-    //            Log.Information("Migrations applied successfully.");
-    //        }
-    //    }
-    //    catch (Exception ex)
-    //    {
-    //        Log.Error(ex, "An error occurred while migrating the database.");
-    //    } 
-    //}
-
+    if (!app.Environment.IsProduction())
+    {
+        // Tự động apply migration khi app start (nếu có migration mới) - áp dụng cho dev/staging môi trường container
+        using (var scope = app.Services.CreateScope())
+        {
+            var services = scope.ServiceProvider;
+            try
+            {
+                var context = services.GetRequiredService<AppDbContext>();
+                if (context.Database.GetPendingMigrations().Any())
+                {
+                    Log.Information("Applying pending migrations...");
+                    context.Database.Migrate();
+                    Log.Information("Migrations applied successfully.");
+                }
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "An error occurred while migrating the database.");
+            }
+        }
+    }
     app.Run();
 }
 catch (Exception ex)

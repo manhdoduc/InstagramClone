@@ -5,25 +5,25 @@ using Microsoft.EntityFrameworkCore.Metadata.Builders;
 
 namespace InstagramClone.Infrastructure.Persistence.Configurations;
 
-public class RoleConfiguration : IEntityTypeConfiguration<IdentityRole>
+public class RoleConfiguration : IEntityTypeConfiguration<IdentityRole<Guid>>
 {
-    public void Configure(EntityTypeBuilder<IdentityRole> builder)
+    public void Configure(EntityTypeBuilder<IdentityRole<Guid>> builder)
     {
         builder.HasData(
-            new IdentityRole
+            new IdentityRole<Guid>
             {
-                Id = "3BA43D62-5360-4A30-A29A-D3F2BB371CC1",
+                Id = Guid.Parse("3BA43D62-5360-4A30-A29A-D3F2BB371CC1"),
                 ConcurrencyStamp = "4ebeedfc-8a96-4459-80aa-94e7c2b1fa22",
                 Name = RoleNames.User,
                 NormalizedName = RoleNames.User.ToUpper()
             },
-            new IdentityRole
+            new IdentityRole<Guid>
             {
-                Id = "0114C45B-EB0A-4D57-950C-B435F395087F",
+                Id = Guid.Parse("0114C45B-EB0A-4D57-950C-B435F395087F"),
                 ConcurrencyStamp = "24e38ef9-0968-4fed-bc6f-8e6b2f41420b",
                 Name = RoleNames.Administrator,
                 NormalizedName = RoleNames.Administrator.ToUpper()
             }
-            );
+        );
     }
 }

@@ -45,7 +45,9 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IChatService, ChatServices>();
         services.AddScoped<InstagramClone.Application.Features.Notifications.Services.INotificationServices, InstagramClone.Application.Features.Notifications.Services.NotificationServices>();
 
-        services.AddAutoMapper(cfg => cfg.AddMaps(AppDomain.CurrentDomain.GetAssemblies()));
+        services.AddAutoMapper(cfg =>
+            cfg.AddMaps(typeof(InstagramClone.Application.Features.Posts.Mappings.PostProfile).Assembly)
+        );
 
         services.AddValidatorsFromAssemblyContaining<CreatePostDtoValidator>();
         services.AddFluentValidationAutoValidation();
@@ -106,12 +108,14 @@ public static class ServiceCollectionExtensions
         .AddDefaultTokenProviders();
 
         services.Configure<JwtSettings>(configuration.GetSection("JwtSettings"));
+        services.Configure<MediaSettings>(configuration.GetSection(MediaSettings.SectionName));
         var jwtSettings = configuration.GetSection("JwtSettings").Get<JwtSettings>() ?? new JwtSettings();
 
         if (jwtSettings == null || string.IsNullOrEmpty(jwtSettings.Key))
         {
             Log.Fatal("JWT settings are not configured properly.");
             throw new Exception("JWT settings are not configured properly.");
+            
         }
 
         services.AddAuthentication(options =>
@@ -223,11 +227,15 @@ public static class ServiceCollectionExtensions
                     policy.WithOrigins(origins)
                       .AllowAnyMethod()
                       .AllowAnyHeader()
-                      .AllowCredentials();
+                      .AllowCredentials()
+                      .SetIsOriginAllowed(_ => true);
                 }
                 else
                 {
-                    Log.Warning("No allowed origins configured for CORS.");
+                    policy.SetIsOriginAllowed(_ => true)
+                      .AllowAnyMethod()
+                      .AllowAnyHeader()
+                      .AllowCredentials();
                 }
             });
         });
@@ -252,8 +260,8 @@ public static class ServiceCollectionExtensions
         {
             options.AddFixedWindowLimiter("LoginLimit", limiterOptions =>
             {
-                limiterOptions.PermitLimit = 5;
-                limiterOptions.Window = TimeSpan.FromMinutes(5);
+                limiterOptions.PermitLimit = 15;
+                limiterOptions.Window = TimeSpan.FromMinutes(1);
                 limiterOptions.QueueProcessingOrder = QueueProcessingOrder.OldestFirst;
             });
 
@@ -342,9 +350,9 @@ public static class ServiceCollectionExtensions
         {
             setup.SetEvaluationTimeInSeconds(10);
             setup.MaximumHistoryEntriesPerEndpoint(50);
-            setup.AddHealthCheckEndpoint("Instagram Api", "/healthz");
+            setup.AddHealthCheckEndpoint("Instagram Api", "http://localhost:8080/healthz");
         })
-        .AddSqlServerStorage(configuration.GetConnectionString("DefaultConnection")!);
+        .AddInMemoryStorage();
 
         return services;
     }

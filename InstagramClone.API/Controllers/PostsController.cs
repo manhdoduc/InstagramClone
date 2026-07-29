@@ -42,6 +42,16 @@ namespace InstagramClone.API.Controllers
             return ToActionResult(result);
         }
 
+        // GET: api/posts/user/{userId}
+        [HttpGet("user/{userId}")]
+        public async Task<ActionResult<CursorPagedResponse<ResponsePostDto>>> GetUserPosts(
+            [FromRoute] string userId,
+            [FromQuery] CursorPaginationRequest cursorPagination)
+        {
+            var result = await postServices.GetUserPostsAsync(userId, cursorPagination);
+            return ToActionResult(result);
+        }
+
         #endregion
 
         #region 2. Các Thao tác CRUD Cơ bản (Dùng ràng buộc :guid)

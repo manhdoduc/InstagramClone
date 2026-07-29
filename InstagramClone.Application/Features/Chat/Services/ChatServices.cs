@@ -6,9 +6,11 @@ using InstagramClone.Application.Interfaces.Chats;
 using InstagramClone.Application.Interfaces.Data;
 using InstagramClone.Application.Interfaces.Services;
 using InstagramClone.Common.Constants;
+using InstagramClone.Common.Models.Config;
 using InstagramClone.Common.Results;
 using InstagramClone.Domain.Entities;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Options;
 
 namespace InstagramClone.Application.Features.Chat.Services
 {
@@ -17,9 +19,11 @@ namespace InstagramClone.Application.Features.Chat.Services
         ICurrentUserService currentUser,
         ICacheService cache,
         IChatNotificationService chatNotificationService,
-        IStorageServices storageServices
+        IStorageServices storageServices,
+        IOptions<MediaSettings> mediaSettingsOptions
         ) : IChatService
     {
+        private readonly MediaSettings _mediaSettings = mediaSettingsOptions.Value;
         public async Task<Result<bool>> AddMemberToGroupAsync(string targetUserIdStr, Guid chatRoomId)
         {
             if (!Guid.TryParse(currentUser.UserId, out var currentUserId)) return Result<bool>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
@@ -256,7 +260,7 @@ namespace InstagramClone.Application.Features.Chat.Services
             if (!isMember) return Result<MessageDto>.Failure(new Error(ErrorCodes.Failure, "User not a member"));
 
             // 1. Upload ảnh
-            var uploadResult = await storageServices.UploadImageAsync(file, currentUserId.ToString(), "image-chat", 400, 400);
+            var uploadResult = await storageServices.UploadImageAsync(file, currentUserId.ToString(), "image-chat", _mediaSettings.ChatImage.MaxWidth, _mediaSettings.ChatImage.MaxHeight);
             if (!uploadResult.IsSuccess) return Result<MessageDto>.Failure(new Error(ErrorCodes.Failure, "Upload failed"));
 
             // 2. Tạo Request

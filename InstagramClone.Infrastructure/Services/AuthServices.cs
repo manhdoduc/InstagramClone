@@ -41,32 +41,45 @@ namespace InstagramClone.Infrastructure.Services{
                 return Result<RegisteredUserDto>.BadRequest(error);
             }
 
-            var roleResult = await userManager.AddToRoleAsync(applicationUser, RoleNames.User);
-
-            var user = new AppUser(
-                applicationUser.Id,
-                registerUserDto.NickName,
-                registerUserDto.Email,
-                registerUserDto.FirstName,
-                registerUserDto.LastName,
-                RemoveDiacritics.RemoveDiacritic(registerUserDto.FirstName + " " + registerUserDto.LastName)
-            );
-            
-            unitOfWork.Users.Add(user);
-            await unitOfWork.SaveChangesAsync();
-
-            var registeredUserDto = new RegisteredUserDto
+            try
             {
-                Id = user.Id.ToString(),
-                Email = user.Email,
-                FirstName = user.FirstName,
-                LastName = user.LastName,
-                UserName = registerUserDto.NickName,
-                Role = RoleNames.User
-            };
+                var roleResult = await userManager.AddToRoleAsync(applicationUser, RoleNames.User);
+                if (!roleResult.Succeeded)
+                {
+                    Log.Warning("Failed to add role {Role} to user {Email}: {@Errors}", RoleNames.User, registerUserDto.Email, roleResult.Errors.Select(e => e.Description));
+                }
 
-            Log.Information("User {UserId} registered successfully with email {Email}", user.Id, user.Email);
-            return Result<RegisteredUserDto>.Success(registeredUserDto);
+                var user = new AppUser(
+                    applicationUser.Id,
+                    registerUserDto.NickName,
+                    registerUserDto.Email,
+                    registerUserDto.FirstName,
+                    registerUserDto.LastName,
+                    RemoveDiacritics.RemoveDiacritic(registerUserDto.FirstName + " " + registerUserDto.LastName)
+                );
+                
+                unitOfWork.Users.Add(user);
+                await unitOfWork.SaveChangesAsync();
+
+                var registeredUserDto = new RegisteredUserDto
+                {
+                    Id = user.Id.ToString(),
+                    Email = user.Email,
+                    FirstName = user.FirstName,
+                    LastName = user.LastName,
+                    UserName = registerUserDto.NickName,
+                    Role = RoleNames.User
+                };
+
+                Log.Information("User {UserId} registered successfully with email {Email}", user.Id, user.Email);
+                return Result<RegisteredUserDto>.Success(registeredUserDto);
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex, "Failed to complete registration for {Email}. Cleaning up Identity user {UserId}", registerUserDto.Email, applicationUser.Id);
+                await userManager.DeleteAsync(applicationUser);
+                throw;
+            }
         }
 
         public async Task<Result<TokenResponseDto>> LoginAsync(LoginUserDto loginDto)
@@ -87,8 +100,21 @@ namespace InstagramClone.Infrastructure.Services{
             }
 
             var appUser = await unitOfWork.Users.GetByIdAsync(user.Id);
-            if(appUser is null)
-                return Result<TokenResponseDto>.Failure(new Error(ErrorCodes.BadRequest, "User profile not found"));
+            if (appUser is null)
+            {
+                Log.Warning("AppUser profile missing for ApplicationUser {UserId}, auto-creating profile...", user.Id);
+                var userName = user.UserName ?? user.Email ?? "user";
+                appUser = new AppUser(
+                    user.Id,
+                    userName,
+                    user.Email ?? "",
+                    userName,
+                    "",
+                    RemoveDiacritics.RemoveDiacritic(userName)
+                );
+                unitOfWork.Users.Add(appUser);
+                await unitOfWork.SaveChangesAsync();
+            }
 
             var accessToken = await GenerateToken(user, appUser);
             var refreshToken = await GenerateRefreshToken();

@@ -8,7 +8,6 @@ namespace InstagramClone.API.Controllers;
 
 [Route("api/[controller]")]
 [ApiController]
-[EnableRateLimiting("LoginLimit")]
 public class AuthController(IAuthServices userServices) : BaseApiController
 {
     [AllowAnonymous]
@@ -20,6 +19,7 @@ public class AuthController(IAuthServices userServices) : BaseApiController
     }
 
     [AllowAnonymous]
+    [EnableRateLimiting("LoginLimit")]
     [HttpPost("login")]
     public async Task<ActionResult<TokenResponseDto>> Login([FromBody] LoginUserDto loginDto)
     {
