@@ -67,6 +67,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ISocialNotificationService, SocialNotificationService>();
         services.AddScoped<IBackgroundJobService, HangfireBackgroundJobService>();
         services.AddScoped<InstagramClone.Application.Interfaces.BackgroundJobs.ITokenCleanupJob, InstagramClone.Infrastructure.BackgroundJobs.Jobs.TokenCleanupJob>();
+        services.AddScoped<InstagramClone.Application.Interfaces.BackgroundJobs.IMediaCleanupJob, InstagramClone.Infrastructure.BackgroundJobs.Jobs.MediaCleanupJob>();
         services.AddSingleton<ICacheService, MemoryCacheService>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
 

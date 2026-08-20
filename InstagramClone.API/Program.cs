@@ -179,10 +179,18 @@ try
     using (var scope = app.Services.CreateScope())
     {
         var backgroundJobService = scope.ServiceProvider.GetRequiredService<InstagramClone.Application.Interfaces.Services.IBackgroundJobService>();
+        
+        // 1. Dọn dẹp Refresh Token hết hạn (Hàng ngày lúc 03:00 UTC)
         backgroundJobService.AddOrUpdateRecurring<InstagramClone.Application.Interfaces.BackgroundJobs.ITokenCleanupJob>(
             "cleanup-expired-refresh-tokens",
             job => job.CleanupExpiredRefreshTokensAsync(),
-            Cron.Daily(3)); // Chạy tự động hàng ngày lúc 03:00 UTC
+            Cron.Daily(3));
+
+        // 2. Dọn dẹp file media đã bị soft-deleted quá 30 ngày (Hàng ngày lúc 02:00 UTC)
+        backgroundJobService.AddOrUpdateRecurring<InstagramClone.Application.Interfaces.BackgroundJobs.IMediaCleanupJob>(
+            "cleanup-soft-deleted-media",
+            job => job.CleanupSoftDeletedMediaAsync(30),
+            Cron.Daily(2));
     }
 
     if (!app.Environment.IsProduction())
