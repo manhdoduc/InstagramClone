@@ -175,6 +175,16 @@ try
 
     Log.Information("Application started successfully.");
 
+    // Đăng ký Hangfire Recurring Background Jobs
+    using (var scope = app.Services.CreateScope())
+    {
+        var backgroundJobService = scope.ServiceProvider.GetRequiredService<InstagramClone.Application.Interfaces.Services.IBackgroundJobService>();
+        backgroundJobService.AddOrUpdateRecurring<InstagramClone.Application.Interfaces.BackgroundJobs.ITokenCleanupJob>(
+            "cleanup-expired-refresh-tokens",
+            job => job.CleanupExpiredRefreshTokensAsync(),
+            Cron.Daily(3)); // Chạy tự động hàng ngày lúc 03:00 UTC
+    }
+
     if (!app.Environment.IsProduction())
     {
         // Tự động apply migration khi app start (nếu có migration mới) - áp dụng cho dev/staging môi trường container

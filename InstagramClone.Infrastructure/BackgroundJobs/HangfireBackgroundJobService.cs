@@ -6,7 +6,9 @@ using System.Threading.Tasks;
 
 namespace InstagramClone.Infrastructure.BackgroundJobs;
 
-public class HangfireBackgroundJobService(IBackgroundJobClient backgroundJobClient) : IBackgroundJobService
+public class HangfireBackgroundJobService(
+    IBackgroundJobClient backgroundJobClient,
+    IRecurringJobManager recurringJobManager) : IBackgroundJobService
 {
     public string Enqueue(Expression<Action> methodCall) => 
         backgroundJobClient.Enqueue(methodCall);
@@ -22,4 +24,7 @@ public class HangfireBackgroundJobService(IBackgroundJobClient backgroundJobClie
 
     public string Schedule<T>(Expression<Func<T, Task>> methodCall, TimeSpan delay) => 
         backgroundJobClient.Schedule<T>(methodCall, delay);
+
+    public void AddOrUpdateRecurring<T>(string recurringJobId, Expression<Func<T, Task>> methodCall, string cronExpression) =>
+        recurringJobManager.AddOrUpdate<T>(recurringJobId, methodCall, cronExpression);
 }

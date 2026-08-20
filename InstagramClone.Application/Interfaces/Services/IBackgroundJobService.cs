@@ -30,4 +30,9 @@ public interface IBackgroundJobService
     /// Schedule a background job to run after a specified delay.
     /// </summary>
     string Schedule<T>(Expression<Func<T, Task>> methodCall, TimeSpan delay);
+
+    /// <summary>
+    /// Add or update a recurring background job.
+    /// </summary>
+    void AddOrUpdateRecurring<T>(string recurringJobId, Expression<Func<T, Task>> methodCall, string cronExpression);
 }
