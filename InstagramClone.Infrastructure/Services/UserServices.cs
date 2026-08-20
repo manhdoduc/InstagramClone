@@ -18,6 +18,7 @@ namespace InstagramClone.Infrastructure.Services;
 public class UserServices(IStorageServices storageServices, 
                             ICurrentUserService currentUser, IUnitOfWork unitOfWork,
                             ICacheService cache, 
+                            IBackgroundJobService backgroundJobService,
                             IOptions<MediaSettings> mediaSettingsOptions) : IUserServices
 {
     private readonly MediaSettings _mediaSettings = mediaSettingsOptions.Value;
@@ -57,11 +58,12 @@ public class UserServices(IStorageServices storageServices,
             return Result<string>.Failure(new Error(ErrorCodes.Failure, "Failed to update user avatar in database."));
         }
 
-        // 5. Nếu DB THÀNH CÔNG -> Lúc này mới xóa file CŨ (Dọn rác)
-        if (!string.IsNullOrEmpty(oldAvatarUrl))
+        // 5. Nếu DB THÀNH CÔNG -> Lúc này mới xóa file CŨ (Dọn rác qua Delayed Job)
+        if (!string.IsNullOrEmpty(oldAvatarUrl) && oldAvatarUrl != AppConstants.DefaultAvatarUrl)
         {
-            // Thêm ! để báo cho VS biết oldAvatarUrl chắc chắn không null ở đây
-            await storageServices.DeleteFile(oldAvatarUrl!);
+            backgroundJobService.Schedule<IStorageServices>(
+                svc => svc.DeleteFile(oldAvatarUrl!),
+                TimeSpan.FromSeconds(10));
         }
 
         await cache.BumpScopeVersionAsync($"user:profile:rev:{userId}");
@@ -99,7 +101,12 @@ public class UserServices(IStorageServices storageServices,
         var updateResult = await unitOfWork.SaveChangesAsync();
         if (updateResult <= 0)
             return Result<bool>.Failure(new Error(ErrorCodes.Failure, "Failed to delete user avatar in database."));
-        await storageServices.DeleteFile(oldAvatarUrl);
+            
+        // Xóa file cũ qua Delayed Job
+        backgroundJobService.Schedule<IStorageServices>(
+            svc => svc.DeleteFile(oldAvatarUrl!),
+            TimeSpan.FromSeconds(10));
+            
         await cache.BumpScopeVersionAsync($"user:profile:rev:{userId}");
         return Result<bool>.Success(true);
     }
