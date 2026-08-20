@@ -21,6 +21,7 @@ public interface IApplicationDbContext
     DbSet<ChatParticipant> ChatParticipants { get; set; }
     DbSet<Message> Messages { get; set; }
     DbSet<MessageReaction> MessageReactions { get; set; }
+    DbSet<Story> Stories { get; set; }
 
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

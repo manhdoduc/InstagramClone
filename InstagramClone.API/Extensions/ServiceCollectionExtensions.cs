@@ -47,6 +47,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IFollowService, FollowServices>();
         services.AddScoped<IChatService, ChatServices>();
         services.AddScoped<InstagramClone.Application.Features.Notifications.Services.INotificationServices, InstagramClone.Application.Features.Notifications.Services.NotificationServices>();
+        services.AddScoped<InstagramClone.Application.Features.Stories.Services.IStoryServices, InstagramClone.Application.Features.Stories.Services.StoryServices>();
 
         services.AddAutoMapper(cfg =>
             cfg.AddMaps(typeof(InstagramClone.Application.Features.Posts.Mappings.PostProfile).Assembly)
@@ -68,6 +69,8 @@ public static class ServiceCollectionExtensions
         services.AddScoped<IBackgroundJobService, HangfireBackgroundJobService>();
         services.AddScoped<InstagramClone.Application.Interfaces.BackgroundJobs.ITokenCleanupJob, InstagramClone.Infrastructure.BackgroundJobs.Jobs.TokenCleanupJob>();
         services.AddScoped<InstagramClone.Application.Interfaces.BackgroundJobs.IMediaCleanupJob, InstagramClone.Infrastructure.BackgroundJobs.Jobs.MediaCleanupJob>();
+        services.AddScoped<InstagramClone.Application.Interfaces.BackgroundJobs.IStoryExpirationJob, InstagramClone.Infrastructure.BackgroundJobs.Jobs.StoryExpirationJob>();
+        services.AddScoped<InstagramClone.Application.Interfaces.Repositories.IStoryRepository, InstagramClone.Infrastructure.Repositories.StoryRepository>();
         services.AddSingleton<ICacheService, MemoryCacheService>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
 

@@ -38,6 +38,7 @@ public class AppDbContext : IdentityDbContext<ApplicationUser, IdentityRole<Guid
 
     public DbSet<MessageReaction> MessageReactions { get; set; }
     public DbSet<Notification> Notifications { get; set; }
+    public DbSet<Story> Stories { get; set; }
 
 
     protected override void OnModelCreating(ModelBuilder builder)

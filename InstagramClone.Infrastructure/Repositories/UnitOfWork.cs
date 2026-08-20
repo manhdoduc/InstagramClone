@@ -17,6 +17,7 @@ public class UnitOfWork : IUnitOfWork
         Comments = new CommentRepository(_context, mapper);
         Chats = new ChatRepository(_context, mapper);
         Notifications = new Persistence.Repositories.NotificationRepository(_context);
+        Stories = new StoryRepository(_context);
     }
 
     public IUserRepository Users { get; }
@@ -24,6 +25,7 @@ public class UnitOfWork : IUnitOfWork
     public ICommentRepository Comments { get; }
     public IChatRepository Chats { get; }
     public INotificationRepository Notifications { get; }
+    public IStoryRepository Stories { get; }
 
     public async Task<int> SaveChangesAsync()
     {

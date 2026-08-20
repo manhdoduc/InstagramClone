@@ -9,6 +9,7 @@ public sealed class MediaSettings
     public ImageDimensionSettings Avatar { get; set; } = new() { MaxWidth = 500, MaxHeight = 500 };
     public ImageDimensionSettings Post { get; set; } = new() { MaxWidth = 1080, MaxHeight = 1350 };
     public ImageDimensionSettings ChatImage { get; set; } = new() { MaxWidth = 400, MaxHeight = 400 };
+    public ImageDimensionSettings Story { get; set; } = new() { MaxWidth = 1080, MaxHeight = 1920 };
 }
 
 public sealed class ImageDimensionSettings

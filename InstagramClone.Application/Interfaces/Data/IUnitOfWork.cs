@@ -10,6 +10,7 @@ public interface IUnitOfWork
     ICommentRepository Comments { get; }
     IChatRepository Chats { get; }
     INotificationRepository Notifications { get; }
+    IStoryRepository Stories { get; }
     
     Task<int> SaveChangesAsync();
 }
