@@ -1,0 +1,28 @@
+@namespace InstagramClone.Web.Components.Common
+
+<div class="flex flex-col items-center justify-center text-center p-12 space-y-4">
+    <div class="w-16 h-16 rounded-full border-2 border-neutral-700 flex items-center justify-center text-neutral-400">
+        <i class="@IconClass text-2xl"></i>
+    </div>
+    <div class="space-y-1 max-w-sm">
+        <h3 class="text-lg font-bold text-white">@Title</h3>
+        @if (!string.IsNullOrEmpty(Description))
+        {
+            <p class="text-xs text-neutral-400 leading-relaxed">@Description</p>
+        }
+    </div>
+    @if (ActionButtonText != null && OnAction.HasDelegate)
+    {
+        <button @onclick="OnAction" class="mt-2 px-5 py-2 bg-insta-blue hover:bg-insta-blue-hover text-white font-semibold text-xs rounded-lg transition-colors">
+            @ActionButtonText
+        </button>
+    }
+</div>
+
+@code {
+    [Parameter] public string Title { get; set; } = "Chưa có dữ liệu";
+    [Parameter] public string? Description { get; set; }
+    [Parameter] public string IconClass { get; set; } = "fa-regular fa-image";
+    [Parameter] public string? ActionButtonText { get; set; }
+    [Parameter] public EventCallback OnAction { get; set; }
+}

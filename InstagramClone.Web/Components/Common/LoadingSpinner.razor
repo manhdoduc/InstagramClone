@@ -1,0 +1,36 @@
+@namespace InstagramClone.Web.Components.Common
+
+@if (FullPage)
+{
+    <div class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex flex-col items-center justify-center space-y-4">
+        <div class="w-12 h-12 rounded-full border-2 border-neutral-700 border-t-insta-pink animate-spin"></div>
+        @if (!string.IsNullOrEmpty(Text))
+        {
+            <p class="text-xs text-neutral-400 font-medium">@Text</p>
+        }
+    </div>
+}
+else
+{
+    <div class="flex flex-col items-center justify-center p-6 space-y-3">
+        <div class="@SizeClass rounded-full border-2 border-neutral-700 border-t-insta-pink animate-spin"></div>
+        @if (!string.IsNullOrEmpty(Text))
+        {
+            <p class="text-xs text-neutral-400 font-medium">@Text</p>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public bool FullPage { get; set; } = false;
+    [Parameter] public string Size { get; set; } = "md"; // sm, md, lg
+    [Parameter] public string? Text { get; set; }
+
+    private string SizeClass => Size.ToLower() switch
+    {
+        "sm" => "w-5 h-5",
+        "md" => "w-8 h-8",
+        "lg" => "w-12 h-12",
+        _ => "w-8 h-8"
+    };
+}

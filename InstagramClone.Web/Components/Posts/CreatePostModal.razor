@@ -1,0 +1,180 @@
+@namespace InstagramClone.Web.Components.Posts
+@inject IPostService PostService
+
+<Modal IsOpen="IsOpen" IsOpenChanged="IsOpenChanged" Title="Tạo bài viết mới" MaxWidth="lg">
+    <div class="space-y-4">
+        <!-- Error Banner -->
+        <ErrorMessage Message="@_errorMessage" />
+
+        <!-- Media Selector / File List -->
+        <!-- Media Selector / File List -->
+        <div>
+            <label class="block text-xs font-semibold text-neutral-300 mb-2">Ảnh / Video bài viết (tối đa 5 ảnh)</label>
+            
+            <!-- Always render the InputFile but hide it visually if needed to avoid disposing IBrowserFile -->
+            <div style="@(_selectedFiles.Count == 0 ? "" : "display: none;")">
+                <div class="border-2 border-dashed border-neutral-700 hover:border-neutral-500 rounded-xl p-8 text-center flex flex-col items-center justify-center space-y-3 cursor-pointer bg-neutral-900/50 transition-colors relative">
+                    <InputFile OnChange="HandleFileSelected" multiple accept="image/*" class="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
+                    <div class="w-12 h-12 rounded-full bg-neutral-800 flex items-center justify-center text-neutral-400">
+                        <i class="fa-regular fa-images text-xl"></i>
+                    </div>
+                    <div class="space-y-1">
+                        <p class="text-xs font-semibold text-white">Kéo thả ảnh vào đây hoặc click để chọn</p>
+                        <p class="text-[11px] text-neutral-500">Hỗ trợ PNG, JPG, JPEG (tối đa 10MB/ảnh)</p>
+                    </div>
+                </div>
+            </div>
+
+            <div style="@(_selectedFiles.Count > 0 ? "" : "display: none;")" class="space-y-2 mt-2">
+                <div class="grid grid-cols-3 gap-2 max-h-48 overflow-y-auto p-1 bg-black rounded-lg border border-neutral-800">
+                    @foreach (var file in _selectedFiles)
+                    {
+                        var f = file;
+                        <div class="relative aspect-square rounded-lg overflow-hidden bg-neutral-900 border border-neutral-800 group">
+                            @if (_filePreviews.TryGetValue(f, out var previewUrl))
+                            {
+                                <img src="@previewUrl" class="w-full h-full object-cover" />
+                            }
+                            else
+                            {
+                                <div class="w-full h-full flex items-center justify-center p-2 text-xs text-neutral-400 truncate">
+                                    <i class="fa-regular fa-image text-lg mr-1"></i>
+                                    <span class="truncate">@f.Name</span>
+                                </div>
+                            }
+                            <button type="button" @onclick="() => RemoveFile(f)" class="absolute top-1 right-1 w-6 h-6 rounded-full bg-black/80 hover:bg-red-600 text-white flex items-center justify-center transition-colors">
+                                <i class="fa-solid fa-xmark text-xs"></i>
+                            </button>
+                        </div>
+                    }
+                </div>
+
+                @if (_selectedFiles.Count < 5)
+                {
+                    <div class="relative inline-block">
+                        <InputFile OnChange="HandleFileSelected" multiple accept="image/*" class="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
+                        <button type="button" class="px-3 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-semibold rounded-lg transition-colors flex items-center space-x-1">
+                            <i class="fa-solid fa-plus text-xs"></i>
+                            <span>Thêm ảnh khác</span>
+                        </button>
+                    </div>
+                }
+            </div>
+        </div>
+
+        <!-- Caption Textarea -->
+        <div>
+            <label class="block text-xs font-semibold text-neutral-300 mb-2">Nội dung chú thích</label>
+            <textarea @bind="_content" 
+                      rows="4" 
+                      placeholder="Viết chú thích... Thêm #hashtag để thu hút lượt xem!" 
+                      class="w-full px-3.5 py-2.5 bg-black border border-neutral-800 rounded-lg text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-neutral-600 transition-colors resize-none"></textarea>
+        </div>
+
+        <!-- Submit Action Bar -->
+        <div class="flex items-center justify-end space-x-3 pt-3 border-t border-neutral-800">
+            <button type="button" @onclick="Close" class="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-semibold rounded-lg transition-colors">
+                Hủy
+            </button>
+            <button type="button" 
+                    @onclick="SubmitPost" 
+                    disabled="@(_isSubmitting || (_selectedFiles.Count == 0 && string.IsNullOrWhiteSpace(_content)))" 
+                    class="px-5 py-2 bg-insta-blue hover:bg-insta-blue-hover text-white text-xs font-semibold rounded-lg transition-colors flex items-center space-x-2 disabled:opacity-50 disabled:cursor-not-allowed">
+                @if (_isSubmitting)
+                {
+                    <i class="fa-solid fa-circle-notch animate-spin"></i>
+                    <span>Đang đăng...</span>
+                }
+                else
+                {
+                    <span>Chia sẻ bài viết</span>
+                }
+            </button>
+        </div>
+    </div>
+</Modal>
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+    [Parameter] public EventCallback OnPostCreated { get; set; }
+
+    private readonly List<IBrowserFile> _selectedFiles = new();
+    private readonly Dictionary<IBrowserFile, string> _filePreviews = new();
+    private string _content = string.Empty;
+    private bool _isSubmitting = false;
+    private string? _errorMessage;
+
+    private async Task HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        _errorMessage = null;
+        var files = e.GetMultipleFiles(5 - _selectedFiles.Count);
+        foreach (var file in files)
+        {
+            if (_selectedFiles.Count < 5)
+            {
+                _selectedFiles.Add(file);
+                
+                try
+                {
+                    // Generate a small preview image (250x250) to keep base64 string small
+                    var resizedFile = await file.RequestImageFileAsync(file.ContentType, 250, 250);
+                    using var stream = resizedFile.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+                    using var ms = new MemoryStream();
+                    await stream.CopyToAsync(ms);
+                    var base64 = Convert.ToBase64String(ms.ToArray());
+                    _filePreviews[file] = $"data:{file.ContentType};base64,{base64}";
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error generating preview: {ex.Message}");
+                }
+            }
+        }
+    }
+
+    private void RemoveFile(IBrowserFile file)
+    {
+        _selectedFiles.Remove(file);
+        _filePreviews.Remove(file);
+    }
+
+    private async Task SubmitPost()
+    {
+        if (_selectedFiles.Count == 0 && string.IsNullOrWhiteSpace(_content)) return;
+
+        _errorMessage = null;
+        _isSubmitting = true;
+
+        try
+        {
+            var result = await PostService.CreatePostAsync(_content, _selectedFiles);
+            if (result.IsSuccess)
+            {
+                _selectedFiles.Clear();
+                _filePreviews.Clear();
+                _content = string.Empty;
+                await Close();
+                await OnPostCreated.InvokeAsync();
+            }
+            else
+            {
+                _errorMessage = result.ErrorMessage ?? "Tạo bài viết thất bại. Vui lòng thử lại.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Lỗi: {ex.Message}";
+        }
+        finally
+        {
+            _isSubmitting = false;
+        }
+    }
+
+    private async Task Close()
+    {
+        IsOpen = false;
+        await IsOpenChanged.InvokeAsync(false);
+    }
+}

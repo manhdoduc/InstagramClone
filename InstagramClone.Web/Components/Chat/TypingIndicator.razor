@@ -1,0 +1,19 @@
+@namespace InstagramClone.Web.Components.Chat
+
+@if (IsTyping)
+{
+    <div class="flex items-center space-x-2 p-2 text-xs text-neutral-400 select-none animate-fade-in">
+        <span class="font-semibold text-white">@UserName</span>
+        <span>đang soạn tin nhắn</span>
+        <div class="flex items-center space-x-1">
+            <span class="w-1.5 h-1.5 bg-neutral-400 rounded-full animate-bounce [animation-delay:-0.3s]"></span>
+            <span class="w-1.5 h-1.5 bg-neutral-400 rounded-full animate-bounce [animation-delay:-0.15s]"></span>
+            <span class="w-1.5 h-1.5 bg-neutral-400 rounded-full animate-bounce"></span>
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsTyping { get; set; }
+    [Parameter] public string UserName { get; set; } = "Đối phương";
+}

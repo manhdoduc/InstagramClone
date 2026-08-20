@@ -1,0 +1,70 @@
+@namespace InstagramClone.Web.Components.Users
+@inject IFollowService FollowService
+@inject NavigationManager Navigation
+
+<Modal IsOpen="IsOpen" IsOpenChanged="IsOpenChanged" ShowHeader="true" Title="@Title" MaxWidth="md">
+    <div class="max-h-[400px] overflow-y-auto p-4 space-y-4 bg-neutral-900 rounded-b-xl">
+        @if (IsLoading)
+        {
+            <div class="py-8">
+                <LoadingSpinner Size="md" Text="Đang tải..." />
+            </div>
+        }
+        else if (Users == null || Users.Count == 0)
+        {
+            <div class="text-center text-neutral-400 py-8 text-sm">
+                Danh sách trống.
+            </div>
+        }
+        else
+        {
+            <div class="space-y-4">
+                @foreach (var user in Users)
+                {
+                    var u = user;
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center space-x-3 cursor-pointer group" @onclick="() => NavigateToProfile(u.UserId)">
+                            <Avatar AvatarUrl="@u.AvatarUrl" Alt="@u.FullName" Size="md" />
+                            <div class="flex flex-col">
+                                <span class="text-sm font-semibold text-white group-hover:underline">@u.FullName</span>
+                                @if (!string.IsNullOrWhiteSpace(u.UserName))
+                                {
+                                    <span class="text-xs text-neutral-400">@@@u.UserName</span>
+                                }
+                            </div>
+                        </div>
+                        @if (!string.Equals(u.UserId, CurrentUserId, StringComparison.OrdinalIgnoreCase))
+                        {
+                            <button @onclick="() => ToggleFollow(u)" class="px-4 py-1.5 text-xs font-semibold rounded-lg transition-colors @(u.IsFollowing ? "bg-neutral-800 hover:bg-neutral-700 text-white" : "bg-insta-blue hover:bg-insta-blue-hover text-white")">
+                                @(u.IsFollowing ? "Đang theo dõi" : "Theo dõi")
+                            </button>
+                        }
+                    </div>
+                }
+            </div>
+        }
+    </div>
+</Modal>
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+    [Parameter] public string Title { get; set; } = string.Empty;
+    [Parameter] public List<UserSummaryDto> Users { get; set; } = new();
+    [Parameter] public bool IsLoading { get; set; } = false;
+    [Parameter] public string CurrentUserId { get; set; } = string.Empty;
+
+    private async Task ToggleFollow(UserSummaryDto user)
+    {
+        user.IsFollowing = !user.IsFollowing;
+        await FollowService.ToggleFollowAsync(user.UserId);
+    }
+
+    private void NavigateToProfile(string userId)
+    {
+        IsOpen = false;
+        IsOpenChanged.InvokeAsync(false);
+        // Add small delay or just navigate
+        Navigation.NavigateTo($"/profile/{userId}");
+    }
+}

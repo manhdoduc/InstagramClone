@@ -1,0 +1,88 @@
+@page "/saved"
+@attribute [Authorize]
+@inject IPostService PostService
+@inject NavigationManager Navigation
+
+<PageTitle>Bài viết đã lưu • Instagram</PageTitle>
+
+<div class="max-w-[935px] mx-auto px-4 py-8 space-y-6">
+    <div class="flex items-center space-x-3 pb-4 border-b border-neutral-800">
+        <i class="fa-regular fa-bookmark text-xl text-neutral-400"></i>
+        <h1 class="text-xl font-bold text-white">Bài viết đã lưu</h1>
+    </div>
+
+    @if (_isLoading)
+    {
+        <LoadingSpinner Size="lg" Text="Đang tải bài viết đã lưu..." />
+    }
+    else if (_posts.Count > 0)
+    {
+        <InfiniteScroll HasNextPage="_hasNextPage" IsLoading="_isLoadingMore" OnLoadMore="LoadMoreSavedPosts">
+            <PostGrid Posts="_posts" OnPostSelected="OpenPostModal" />
+        </InfiniteScroll>
+    }
+    else
+    {
+        <EmptyState Title="Chưa có bài viết nào được lưu" 
+                    Description="Lưu ảnh và video mà bạn muốn xem lại. Không ai được thông báo và chỉ mình bạn mới có thể xem những gì bạn đã lưu." 
+                    IconClass="fa-regular fa-bookmark" 
+                    ActionButtonText="Khám phá Trang chủ" 
+                    OnAction='() => Navigation.NavigateTo("")' />
+    }
+</div>
+
+<!-- Post Detail Modal -->
+@if (_selectedPostId != Guid.Empty)
+{
+    <PostDetailModal @bind-IsOpen="_isPostDetailOpen" PostId="_selectedPostId" />
+}
+
+@code {
+    private List<PostDto> _posts = new();
+    private bool _isLoading = true;
+    private bool _isLoadingMore = false;
+    private bool _hasNextPage = false;
+    private DateTime? _nextCursor;
+
+    private Guid _selectedPostId = Guid.Empty;
+    private bool _isPostDetailOpen = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadSavedPosts();
+    }
+
+    private async Task LoadSavedPosts()
+    {
+        _isLoading = true;
+        var result = await PostService.GetSavedPostsAsync(new PaginationRequest { PageSize = 12 });
+        if (result.IsSuccess && result.Data != null)
+        {
+            _posts = result.Data.Items;
+            _hasNextPage = result.Data.HasNextPage;
+            _nextCursor = result.Data.NextCursor;
+        }
+        _isLoading = false;
+    }
+
+    private async Task LoadMoreSavedPosts()
+    {
+        if (_isLoadingMore || !_hasNextPage) return;
+
+        _isLoadingMore = true;
+        var result = await PostService.GetSavedPostsAsync(new PaginationRequest { PageSize = 12, Cursor = _nextCursor });
+        if (result.IsSuccess && result.Data != null)
+        {
+            _posts.AddRange(result.Data.Items);
+            _hasNextPage = result.Data.HasNextPage;
+            _nextCursor = result.Data.NextCursor;
+        }
+        _isLoadingMore = false;
+    }
+
+    private void OpenPostModal(Guid postId)
+    {
+        _selectedPostId = postId;
+        _isPostDetailOpen = true;
+    }
+}

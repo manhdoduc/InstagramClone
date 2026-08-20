@@ -1,0 +1,43 @@
+@namespace InstagramClone.Web.Components.Layout
+@inject CustomAuthStateProvider AuthStateProvider
+
+<nav class="md:hidden fixed bottom-0 left-0 right-0 bg-black border-t border-neutral-800 z-40 px-6 py-2.5 flex items-center justify-between select-none">
+    <NavLink href="" Match="NavLinkMatch.All" class="text-neutral-400 hover:text-white transition-colors" ActiveClass="text-white">
+        <i class="fa-solid fa-house text-xl"></i>
+    </NavLink>
+
+    <NavLink href="search" class="text-neutral-400 hover:text-white transition-colors" ActiveClass="text-white">
+        <i class="fa-solid fa-magnifying-glass text-xl"></i>
+    </NavLink>
+
+    <button @onclick="OnCreatePostClicked" class="text-neutral-400 hover:text-white transition-colors">
+        <i class="fa-regular fa-square-plus text-2xl"></i>
+    </button>
+
+    <NavLink href="saved" class="text-neutral-400 hover:text-white transition-colors" ActiveClass="text-white">
+        <i class="fa-regular fa-bookmark text-xl"></i>
+    </NavLink>
+
+    @if (_currentUser.IsAuthenticated)
+    {
+        <NavLink href="@($"/profile/{_currentUser.Id}")" class="text-neutral-400 hover:text-white transition-colors" ActiveClass="text-white">
+            <Avatar AvatarUrl="" Alt="@_currentUser.UserName" Size="xs" />
+        </NavLink>
+    }
+</nav>
+
+@code {
+    [Parameter] public EventCallback OnCreatePost { get; set; }
+
+    private CurrentUser _currentUser = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _currentUser = await AuthStateProvider.GetCurrentUserAsync();
+    }
+
+    private async Task OnCreatePostClicked()
+    {
+        await OnCreatePost.InvokeAsync();
+    }
+}

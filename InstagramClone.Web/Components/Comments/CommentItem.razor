@@ -1,0 +1,38 @@
+@namespace InstagramClone.Web.Components.Comments
+
+<div class="flex items-start justify-between space-x-3 group text-xs select-none">
+    <div class="flex items-start space-x-3">
+        <Avatar AvatarUrl="@Comment.AuthorAvatar" Alt="@Comment.AuthorName" Size="xs" />
+        <div class="space-y-1">
+            <p class="leading-relaxed">
+                <a href="@($"/profile/{Comment.AuthorId}")" class="font-semibold text-white mr-1 hover:underline">@Comment.AuthorName</a>
+                <span class="text-neutral-300">@Comment.Content</span>
+            </p>
+            <div class="flex items-center space-x-3 text-[10px] text-neutral-500 font-medium">
+                <span>@DateTimeHelper.ToRelativeTime(Comment.CreatedAt)</span>
+                @if (Comment.LikeCount > 0)
+                {
+                    <span>@Comment.LikeCount lượt thích</span>
+                }
+            </div>
+        </div>
+    </div>
+
+    @if (string.Equals(Comment.AuthorId, CurrentUserId, StringComparison.OrdinalIgnoreCase))
+    {
+        <button @onclick="HandleDelete" class="text-neutral-500 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-1">
+            <i class="fa-regular fa-trash-can text-xs"></i>
+        </button>
+    }
+</div>
+
+@code {
+    [Parameter] public CommentDto Comment { get; set; } = new();
+    [Parameter] public string CurrentUserId { get; set; } = string.Empty;
+    [Parameter] public EventCallback<Guid> OnCommentDeleted { get; set; }
+
+    private async Task HandleDelete()
+    {
+        await OnCommentDeleted.InvokeAsync(Comment.Id);
+    }
+}

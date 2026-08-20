@@ -1,0 +1,346 @@
+@namespace InstagramClone.Web.Components.Posts
+@inject IPostService PostService
+@inject ICommentService CommentService
+@inject CustomAuthStateProvider AuthStateProvider
+
+<Modal IsOpen="IsOpen" IsOpenChanged="IsOpenChanged" ShowHeader="false" MaxWidth="4xl">
+    @if (_isLoading)
+    {
+        <LoadingSpinner Size="lg" Text="Đang tải bài viết..." />
+    }
+    else if (_post != null)
+    {
+        <div class="grid grid-cols-1 md:grid-cols-12 -m-4 max-h-[85vh] overflow-hidden bg-black text-white">
+            <!-- Left Side: Media Carousel (7 cols on desktop) -->
+            <div class="md:col-span-7 bg-black flex items-center justify-center border-b md:border-b-0 md:border-r border-neutral-800">
+                @if (_post.MediaUrls != null && _post.MediaUrls.Count > 0)
+                {
+                    @if (_post.MediaUrls.Count == 1)
+                    {
+                        <img src="@_post.MediaUrls[0]" alt="Post image" class="max-h-[80vh] w-full object-contain" />
+                    }
+                    else
+                    {
+                        <ImageCarousel Images="_post.MediaUrls" />
+                    }
+                }
+                else
+                {
+                    <div class="p-12 text-center text-neutral-400">
+                        <p class="text-sm">@_post.Content</p>
+                    </div>
+                }
+            </div>
+
+            <!-- Right Side: Details & Comments (5 cols on desktop) -->
+            <div class="md:col-span-5 flex flex-col justify-between h-[80vh] bg-neutral-900">
+                <!-- Header: Author Info -->
+                <div class="flex items-center justify-between p-4 border-b border-neutral-800 flex-shrink-0">
+                    <a href="@($"/profile/{_post.AuthorId}")" class="flex items-center space-x-3 group">
+                        <Avatar AvatarUrl="@_post.AuthorAvatar" Alt="@_post.AuthorName" Size="sm" />
+                        <span class="text-xs font-semibold text-white group-hover:text-neutral-300">
+                            @_post.AuthorName
+                        </span>
+                    </a>
+                    <div class="flex items-center space-x-2">
+                        @if (string.Equals(_post.AuthorId, _currentUserId, StringComparison.OrdinalIgnoreCase))
+                        {
+                            <button @onclick="StartEditing" class="text-neutral-300 hover:text-white p-1 text-xs font-semibold flex items-center space-x-1 mr-2">
+                                <i class="fa-regular fa-pen-to-square"></i>
+                                <span>Sửa</span>
+                            </button>
+                            <button @onclick="ConfirmDelete" class="text-red-500 hover:text-red-400 p-1 text-xs font-semibold flex items-center space-x-1">
+                                <i class="fa-regular fa-trash-can"></i>
+                                <span>Xóa</span>
+                            </button>
+                        }
+                        <button @onclick="Close" class="text-neutral-400 hover:text-white p-1">
+                            <i class="fa-solid fa-xmark text-lg"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Scrollable Body: Caption + Comments List -->
+                <div class="flex-1 overflow-y-auto p-4 space-y-4 text-xs">
+                    <!-- Post Caption -->
+                    @if (!string.IsNullOrWhiteSpace(_post.Content))
+                    {
+                        <div class="flex items-start space-x-3 pb-3 border-b border-neutral-800/60">
+                            <Avatar AvatarUrl="@_post.AuthorAvatar" Alt="@_post.AuthorName" Size="xs" />
+                            <div class="flex-1 space-y-1">
+                                <div class="leading-relaxed">
+                                    <a href="@($"/profile/{_post.AuthorId}")" class="font-semibold text-white mr-1 hover:underline">@_post.AuthorName</a>
+                                    
+                                    @if (_isEditing)
+                                    {
+                                        <div class="mt-2 space-y-2">
+                                            <textarea @bind="_editContent" rows="3" class="w-full bg-neutral-900 border border-neutral-700 rounded-lg p-2 text-white focus:outline-none focus:border-neutral-500 resize-none"></textarea>
+                                            <div class="flex space-x-2 justify-end">
+                                                <button @onclick="CancelEditing" class="text-neutral-400 hover:text-white px-3 py-1.5 rounded-lg font-semibold transition-colors">Hủy</button>
+                                                <button @onclick="SaveEdit" disabled="@_isSavingEdit" class="bg-insta-blue hover:bg-insta-blue-hover text-white px-4 py-1.5 rounded-lg font-semibold transition-colors disabled:opacity-50">
+                                                    @if (_isSavingEdit) { <i class="fa-solid fa-circle-notch animate-spin"></i> } else { <span>Lưu</span> }
+                                                </button>
+                                            </div>
+                                        </div>
+                                    }
+                                    else
+                                    {
+                                        <span class="text-neutral-200 whitespace-pre-wrap">@_post.Content</span>
+                                    }
+                                </div>
+                                <p class="text-[10px] text-neutral-500">@DateTimeHelper.ToRelativeTime(_post.CreatedAt)</p>
+                            </div>
+                        </div>
+                    }
+
+                    <!-- Comments Section -->
+                    @if (_isLoadingComments)
+                    {
+                        <LoadingSpinner Size="sm" Text="Đang tải bình luận..." />
+                    }
+                    else if (_comments.Count > 0)
+                    {
+                        @foreach (var comment in _comments)
+                        {
+                            var c = comment;
+                            <div class="flex items-start justify-between space-x-3 group">
+                                <div class="flex items-start space-x-3">
+                                    <Avatar AvatarUrl="@c.AuthorAvatar" Alt="@c.AuthorName" Size="xs" />
+                                    <div class="space-y-1">
+                                        <p class="leading-relaxed">
+                                            <a href="@($"/profile/{c.AuthorId}")" class="font-semibold text-white mr-1 hover:underline">@c.AuthorName</a>
+                                            <span class="text-neutral-300">@c.Content</span>
+                                        </p>
+                                        <div class="flex items-center space-x-3 text-[10px] text-neutral-500 font-medium">
+                                            <span>@DateTimeHelper.ToRelativeTime(c.CreatedAt)</span>
+                                            @if (c.LikeCount > 0)
+                                            {
+                                                <span>@c.LikeCount lượt thích</span>
+                                            }
+                                        </div>
+                                    </div>
+                                </div>
+
+                                @if (string.Equals(c.AuthorId, _currentUserId, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    <button @onclick="() => DeleteComment(c.Id)" class="text-neutral-500 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-1">
+                                        <i class="fa-regular fa-trash-can text-xs"></i>
+                                    </button>
+                                }
+                            </div>
+                        }
+                    }
+                    else
+                    {
+                        <div class="py-8 text-center text-neutral-500 text-xs">
+                            <p>Chưa có bình luận nào.</p>
+                            <p class="text-[11px]">Bắt đầu cuộc trò chuyện!</p>
+                        </div>
+                    }
+                </div>
+
+                <!-- Footer: Actions & Add Comment Form -->
+                <div class="p-4 border-t border-neutral-800 bg-black/40 flex-shrink-0 space-y-3">
+                    <!-- Actions -->
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center space-x-4">
+                            <button @onclick="ToggleLike" class="transition-transform active:scale-125">
+                                <i class="@(_post.IsLiked ? "fa-solid fa-heart text-red-500" : "fa-regular fa-heart text-white hover:text-neutral-400") text-xl"></i>
+                            </button>
+                        </div>
+                        <span class="text-xs font-semibold text-white">@_post.LikeCount.ToString("N0") lượt thích</span>
+                    </div>
+
+                    <!-- Add Comment Input -->
+                    <form @onsubmit="SubmitComment" @onsubmit:preventDefault class="flex items-center space-x-2 pt-2 border-t border-neutral-800">
+                        <input type="text" 
+                               @bind="_newCommentText" 
+                               placeholder="Thêm bình luận..." 
+                               class="flex-1 bg-transparent text-xs text-white placeholder-neutral-500 focus:outline-none" />
+
+                        @if (!string.IsNullOrWhiteSpace(_newCommentText))
+                        {
+                            <button type="submit" disabled="@_isSubmitting" class="text-xs font-semibold text-insta-blue hover:text-white transition-colors">
+                                @if (_isSubmitting)
+                                {
+                                    <i class="fa-solid fa-circle-notch animate-spin"></i>
+                                }
+                                else
+                                {
+                                    <span>Đăng</span>
+                                }
+                            </button>
+                        }
+                    </form>
+                </div>
+            </div>
+        </div>
+    }
+</Modal>
+
+<!-- Confirm Delete Dialog -->
+<ConfirmDialog @bind-IsOpen="_showDeleteConfirm" 
+               Title="Xóa bài viết" 
+               Message="Bạn có chắc chắn muốn xóa bài viết này không? Hành động này không thể hoàn tác."
+               ConfirmText="Xóa"
+               IsDanger="true"
+               IsLoading="_isDeleting"
+               OnConfirm="HandleDeletePost" />
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+    [Parameter] public Guid PostId { get; set; }
+    [Parameter] public EventCallback<Guid> OnPostDeleted { get; set; }
+
+    private PostDto? _post;
+    private List<CommentDto> _comments = new();
+    private bool _isLoading = true;
+    private bool _isLoadingComments = false;
+    private string _newCommentText = string.Empty;
+    private bool _isSubmitting = false;
+    private string _currentUserId = string.Empty;
+    private bool _showDeleteConfirm = false;
+    private bool _isDeleting = false;
+
+    private bool _isEditing = false;
+    private bool _isSavingEdit = false;
+    private string _editContent = string.Empty;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (IsOpen && PostId != Guid.Empty)
+        {
+            var user = await AuthStateProvider.GetCurrentUserAsync();
+            _currentUserId = user.Id;
+            await LoadPostDetail();
+        }
+    }
+
+    private async Task LoadPostDetail()
+    {
+        _isLoading = true;
+        var postResult = await PostService.GetPostByIdAsync(PostId);
+        if (postResult.IsSuccess && postResult.Data != null)
+        {
+            _post = postResult.Data;
+            await LoadComments();
+        }
+        _isLoading = false;
+    }
+
+    private async Task LoadComments()
+    {
+        _isLoadingComments = true;
+        var result = await CommentService.GetCommentsAsync(PostId, new PaginationRequest { PageSize = 50 });
+        if (result.IsSuccess && result.Data != null)
+        {
+            _comments = result.Data.Items;
+        }
+        _isLoadingComments = false;
+    }
+
+    private async Task ToggleLike()
+    {
+        if (_post == null) return;
+        _post.IsLiked = !_post.IsLiked;
+        _post.LikeCount += _post.IsLiked ? 1 : -1;
+        StateHasChanged();
+
+        var result = await PostService.ToggleLikeAsync(_post.Id);
+        if (!result.IsSuccess)
+        {
+            _post.IsLiked = !_post.IsLiked;
+            _post.LikeCount += _post.IsLiked ? 1 : -1;
+            StateHasChanged();
+        }
+    }
+
+    private async Task SubmitComment()
+    {
+        if (_post == null || string.IsNullOrWhiteSpace(_newCommentText) || _isSubmitting) return;
+
+        _isSubmitting = true;
+        var text = _newCommentText;
+        _newCommentText = string.Empty;
+        StateHasChanged();
+
+        var result = await CommentService.AddCommentAsync(_post.Id, text);
+        if (result.IsSuccess && result.Data != null)
+        {
+            _comments.Insert(0, result.Data);
+            _post.CommentCount++;
+        }
+
+        _isSubmitting = false;
+    }
+
+    private async Task DeleteComment(Guid commentId)
+    {
+        if (_post == null) return;
+        var result = await CommentService.DeleteCommentAsync(_post.Id, commentId);
+        if (result.IsSuccess)
+        {
+            _comments.RemoveAll(c => c.Id == commentId);
+            _post.CommentCount--;
+        }
+    }
+
+    private async Task Close()
+    {
+        IsOpen = false;
+        await IsOpenChanged.InvokeAsync(false);
+    }
+
+    private void StartEditing()
+    {
+        if (_post == null) return;
+        _editContent = _post.Content;
+        _isEditing = true;
+    }
+
+    private void CancelEditing()
+    {
+        _isEditing = false;
+        _editContent = string.Empty;
+    }
+
+    private async Task SaveEdit()
+    {
+        if (_post == null || string.IsNullOrWhiteSpace(_editContent) || _editContent == _post.Content)
+        {
+            _isEditing = false;
+            return;
+        }
+
+        _isSavingEdit = true;
+        var result = await PostService.UpdatePostAsync(_post.Id, _editContent);
+        _isSavingEdit = false;
+
+        if (result.IsSuccess)
+        {
+            _post.Content = _editContent;
+            _isEditing = false;
+        }
+    }
+
+    private void ConfirmDelete()
+    {
+        _showDeleteConfirm = true;
+    }
+
+    private async Task HandleDeletePost()
+    {
+        if (_post == null) return;
+        _isDeleting = true;
+        var result = await PostService.DeletePostAsync(_post.Id);
+        _isDeleting = false;
+        _showDeleteConfirm = false;
+
+        if (result.IsSuccess)
+        {
+            await OnPostDeleted.InvokeAsync(_post.Id);
+            await Close();
+        }
+    }
+}

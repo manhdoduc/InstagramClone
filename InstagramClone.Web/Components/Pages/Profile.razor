@@ -1,0 +1,383 @@
+@page "/profile/{UserId}"
+@attribute [Authorize]
+@inject IUserService UserService
+@inject IPostService PostService
+@inject IFollowService FollowService
+@inject CustomAuthStateProvider AuthStateProvider
+@inject NavigationManager Navigation
+
+<PageTitle>@(_profile != null ? $"{_profile.FullName} (@{_profile.UserName})" : "Trang cá nhân") • Instagram</PageTitle>
+
+<div class="max-w-[935px] mx-auto px-4 py-8 space-y-8">
+    @if (_isLoadingProfile)
+    {
+        <LoadingSpinner Size="lg" Text="Đang tải trang cá nhân..." />
+    }
+    else if (_profileError != null)
+    {
+        <EmptyState Title="Người dùng không tồn tại" 
+                    Description="Liên kết bạn theo dõi có thể bị hỏng hoặc trang cá nhân đã bị gỡ." 
+                    IconClass="fa-solid fa-user-slash" 
+                    ActionButtonText="Trở về Trang chủ" 
+                    OnAction='() => Navigation.NavigateTo("")' />
+    }
+    else if (_profile != null)
+    {
+        <!-- Profile Header Section -->
+        <header class="flex flex-col md:flex-row items-center md:items-start space-y-6 md:space-y-0 md:space-x-12 pb-8 border-b border-neutral-800 select-none">
+            <!-- Avatar Area -->
+            <div class="relative group flex-shrink-0">
+                <Avatar AvatarUrl="@_profile.AvatarUrl" Alt="@_profile.FullName" Size="2xl" />
+
+                @if (_profile.MyAccount)
+                {
+                    <div class="relative mt-2 text-center">
+                        <InputFile OnChange="HandleAvatarSelected" accept="image/*" class="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
+                        <span class="text-[11px] font-semibold text-insta-blue hover:underline cursor-pointer">
+                            @(_isUploadingAvatar ? "Đang tải ảnh..." : "Đổi ảnh đại diện")
+                        </span>
+                    </div>
+                }
+            </div>
+
+            <!-- Profile Info & Actions -->
+            <div class="flex-1 space-y-5 text-center md:text-left">
+                <!-- FullName, Username & Action Button -->
+                <div class="flex flex-col md:flex-row items-center md:items-start space-y-3 md:space-y-0 md:space-x-6">
+                    <div class="flex flex-col items-center md:items-start space-y-0.5">
+                        <h2 class="text-xl font-bold text-white tracking-tight">@_profile.FullName</h2>
+                        @if (!string.IsNullOrWhiteSpace(_profile.UserName))
+                        {
+                            <span class="text-xs text-neutral-400 font-medium">@@@_profile.UserName</span>
+                        }
+                    </div>
+
+                    @if (_profile.MyAccount)
+                    {
+                        <div class="flex items-center space-x-2 pt-0.5">
+                            <a href="settings" class="px-3.5 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-white rounded-lg transition-colors flex items-center space-x-1.5 text-xs font-semibold" title="Cài đặt">
+                                <i class="fa-solid fa-gear text-sm"></i>
+                                <span>Cài đặt</span>
+                            </a>
+                        </div>
+                    }
+                    else
+                    {
+                        <div class="flex items-center space-x-2 pt-0.5">
+                            <button @onclick="ToggleFollow" class="px-6 py-1.5 @(_profile.IsFollowing ? "bg-neutral-800 hover:bg-neutral-700 text-white" : "bg-insta-blue hover:bg-insta-blue-hover text-white") font-semibold text-xs rounded-lg transition-colors">
+                                @if (_profile.IsFollowing)
+                                {
+                                    <span>Đang theo dõi</span>
+                                }
+                                else if (_profile.IsRequested)
+                                {
+                                    <span>Đã gửi yêu cầu</span>
+                                }
+                                else
+                                {
+                                    <span>Theo dõi</span>
+                                }
+                            </button>
+
+                            <button @onclick="OpenDirectMessage" class="px-4 py-1.5 bg-neutral-800 hover:bg-neutral-700 text-white font-semibold text-xs rounded-lg transition-colors">
+                                Nhắn tin
+                            </button>
+                        </div>
+                    }
+                </div>
+
+                <!-- Stats Row -->
+                <div class="flex items-center justify-center md:justify-start space-x-8 text-sm">
+                    <div>
+                        <span class="font-bold text-white">@_profile.PostCount.ToString("N0")</span>
+                        <span class="text-neutral-400 text-xs ml-1">bài viết</span>
+                    </div>
+                    <div class="cursor-pointer group" @onclick="ShowFollowers">
+                        <span class="font-bold text-white group-hover:text-neutral-300 transition-colors">@_profile.FollowerCount.ToString("N0")</span>
+                        <span class="text-neutral-400 text-xs ml-1 group-hover:text-neutral-300 transition-colors">người theo dõi</span>
+                    </div>
+                    <div class="cursor-pointer group" @onclick="ShowFollowing">
+                        <span class="font-bold text-white group-hover:text-neutral-300 transition-colors">@_profile.FollowingCount.ToString("N0")</span>
+                        <span class="text-neutral-400 text-xs ml-1 group-hover:text-neutral-300 transition-colors">đang theo dõi</span>
+                    </div>
+                </div>
+
+                <!-- Bio -->
+                @if (!string.IsNullOrWhiteSpace(_profile.Bio))
+                {
+                    <div class="text-xs leading-relaxed">
+                        <p class="text-neutral-300 whitespace-pre-line">@_profile.Bio</p>
+                    </div>
+                }
+            </div>
+        </header>
+
+        <!-- Private Account Lock Banner -->
+        @if (!_profile.MyAccount && _profile.IsPrivateAccount && !_profile.IsFollowing)
+        {
+            <div class="bg-neutral-900 border border-neutral-800 rounded-xl p-12 text-center space-y-3">
+                <div class="w-16 h-16 rounded-full border-2 border-neutral-700 flex items-center justify-center text-neutral-300 mx-auto">
+                    <i class="fa-solid fa-lock text-2xl"></i>
+                </div>
+                <h3 class="text-sm font-bold text-white">Đây là tài khoản riêng tư</h3>
+                <p class="text-xs text-neutral-400 max-w-sm mx-auto">
+                    Theo dõi tài khoản này để xem ảnh và video của họ.
+                </p>
+            </div>
+        }
+        else
+        {
+            <!-- Profile Tabs -->
+            <div class="flex items-center justify-center space-x-12 border-t border-neutral-800 -mt-8 pt-4 select-none">
+                <button @onclick='() => SwitchTab("posts")' class="flex items-center space-x-2 text-xs font-semibold uppercase tracking-wider py-2 border-t-2 transition-colors @(_activeTab == "posts" ? "border-white text-white" : "border-transparent text-neutral-500 hover:text-neutral-300")">
+                    <i class="fa-solid fa-grid-2 text-sm"></i>
+                    <span>Bài viết</span>
+                </button>
+
+                @if (_profile.MyAccount)
+                {
+                    <button @onclick='() => SwitchTab("saved")' class="flex items-center space-x-2 text-xs font-semibold uppercase tracking-wider py-2 border-t-2 transition-colors @(_activeTab == "saved" ? "border-white text-white" : "border-transparent text-neutral-500 hover:text-neutral-300")">
+                        <i class="fa-regular fa-bookmark text-sm"></i>
+                        <span>Đã lưu</span>
+                    </button>
+                }
+            </div>
+
+            <!-- Posts Content Grid -->
+            @if (_isLoadingPosts)
+            {
+                <LoadingSpinner Size="md" Text="Đang tải bài viết..." />
+            }
+            else
+            {
+                <InfiniteScroll HasNextPage="_hasNextPage" IsLoading="_isLoadingMore" OnLoadMore="LoadMoreUserPosts">
+                    <PostGrid Posts="_userPosts" OnPostSelected="OpenPostModal" />
+                </InfiniteScroll>
+            }
+        }
+    }
+</div>
+
+<!-- Post Detail Modal -->
+@if (_selectedPostId != Guid.Empty)
+{
+    <PostDetailModal @bind-IsOpen="_isPostDetailOpen" PostId="_selectedPostId" />
+}
+
+<InstagramClone.Web.Components.Users.UserListModal 
+    @bind-IsOpen="_isUserListModalOpen" 
+    Title="@_userListTitle" 
+    Users="_userList" 
+    IsLoading="_isLoadingUserList" 
+    CurrentUserId="@_currentUserId" />
+
+@code {
+    [Parameter] public string UserId { get; set; } = string.Empty;
+
+    private UserProfileDto? _profile;
+    private bool _isLoadingProfile = true;
+    private string? _profileError;
+    private bool _isUploadingAvatar = false;
+
+    private string _activeTab = "posts"; // posts, saved
+    private List<PostDto> _userPosts = new();
+    private bool _isLoadingPosts = true;
+    private bool _isLoadingMore = false;
+    private bool _hasNextPage = false;
+    private DateTime? _nextCursor;
+
+    private Guid _selectedPostId = Guid.Empty;
+    private bool _isPostDetailOpen = false;
+
+    private bool _isFirstRenderDone = false;
+    private string _currentUserId = string.Empty;
+
+    // User List Modal state
+    private bool _isUserListModalOpen = false;
+    private string _userListTitle = string.Empty;
+    private List<UserSummaryDto> _userList = new();
+    private bool _isLoadingUserList = false;
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (_isFirstRenderDone && !string.IsNullOrWhiteSpace(UserId))
+        {
+            await LoadUserProfile();
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _isFirstRenderDone = true;
+            var currentUser = await AuthStateProvider.GetCurrentUserAsync();
+            _currentUserId = currentUser.Id;
+
+            if (!string.IsNullOrWhiteSpace(UserId))
+            {
+                await LoadUserProfile();
+                StateHasChanged();
+            }
+        }
+    }
+
+    private async Task LoadUserProfile()
+    {
+        _isLoadingProfile = true;
+        _profileError = null;
+
+        var result = await UserService.GetUserProfileAsync(UserId);
+        if (result.IsSuccess && result.Data != null)
+        {
+            _profile = result.Data;
+            await LoadUserPosts();
+        }
+        else
+        {
+            _profileError = result.ErrorMessage ?? "Không tìm thấy người dùng.";
+        }
+
+        _isLoadingProfile = false;
+    }
+
+    private async Task LoadUserPosts()
+    {
+        _isLoadingPosts = true;
+
+        if (_activeTab == "saved")
+        {
+            var result = await PostService.GetSavedPostsAsync(new PaginationRequest { PageSize = 12 });
+            if (result.IsSuccess && result.Data != null)
+            {
+                _userPosts = result.Data.Items;
+                _hasNextPage = result.Data.HasNextPage;
+                _nextCursor = result.Data.NextCursor;
+            }
+        }
+        else
+        {
+            var result = await PostService.GetUserPostsAsync(UserId, new PaginationRequest { PageSize = 12 });
+            if (result.IsSuccess && result.Data != null)
+            {
+                _userPosts = result.Data.Items;
+                _hasNextPage = result.Data.HasNextPage;
+                _nextCursor = result.Data.NextCursor;
+            }
+        }
+
+        _isLoadingPosts = false;
+    }
+
+    private async Task LoadMoreUserPosts()
+    {
+        if (_isLoadingMore || !_hasNextPage) return;
+
+        _isLoadingMore = true;
+
+        if (_activeTab == "saved")
+        {
+            var result = await PostService.GetSavedPostsAsync(new PaginationRequest { PageSize = 12, Cursor = _nextCursor });
+            if (result.IsSuccess && result.Data != null)
+            {
+                _userPosts.AddRange(result.Data.Items);
+                _hasNextPage = result.Data.HasNextPage;
+                _nextCursor = result.Data.NextCursor;
+            }
+        }
+        else
+        {
+            var result = await PostService.GetUserPostsAsync(UserId, new PaginationRequest { PageSize = 12, Cursor = _nextCursor });
+            if (result.IsSuccess && result.Data != null)
+            {
+                _userPosts.AddRange(result.Data.Items);
+                _hasNextPage = result.Data.HasNextPage;
+                _nextCursor = result.Data.NextCursor;
+            }
+        }
+
+        _isLoadingMore = false;
+    }
+
+    private async Task SwitchTab(string tab)
+    {
+        if (_activeTab == tab) return;
+        _activeTab = tab;
+        await LoadUserPosts();
+    }
+
+    private async Task ToggleFollow()
+    {
+        if (_profile == null) return;
+
+        _profile.IsFollowing = !_profile.IsFollowing;
+        _profile.FollowerCount += _profile.IsFollowing ? 1 : -1;
+
+        await FollowService.ToggleFollowAsync(UserId);
+    }
+
+    private async Task HandleAvatarSelected(InputFileChangeEventArgs e)
+    {
+        var file = e.File;
+        if (file == null) return;
+
+        _isUploadingAvatar = true;
+        var result = await UserService.UploadAvatarAsync(file);
+        if (result.IsSuccess && result.Data != null)
+        {
+            if (_profile != null) _profile.AvatarUrl = result.Data;
+        }
+        _isUploadingAvatar = false;
+    }
+
+    private void OpenPostModal(Guid postId)
+    {
+        _selectedPostId = postId;
+        _isPostDetailOpen = true;
+    }
+
+    private void OpenDirectMessage()
+    {
+        Navigation.NavigateTo($"chat");
+    }
+
+    private async Task ShowFollowers()
+    {
+        if (_profile == null || _profile.FollowerCount == 0) return;
+        
+        _userListTitle = "Người theo dõi";
+        _isUserListModalOpen = true;
+        _isLoadingUserList = true;
+        _userList.Clear();
+        StateHasChanged();
+
+        var result = await FollowService.GetFollowersAsync(UserId, new PaginationRequest { PageSize = 100 });
+        if (result.IsSuccess && result.Data != null)
+        {
+            _userList = result.Data.Items;
+        }
+        
+        _isLoadingUserList = false;
+        StateHasChanged();
+    }
+
+    private async Task ShowFollowing()
+    {
+        if (_profile == null || _profile.FollowingCount == 0) return;
+        
+        _userListTitle = "Đang theo dõi";
+        _isUserListModalOpen = true;
+        _isLoadingUserList = true;
+        _userList.Clear();
+        StateHasChanged();
+
+        var result = await FollowService.GetFollowingAsync(UserId, new PaginationRequest { PageSize = 100 });
+        if (result.IsSuccess && result.Data != null)
+        {
+            _userList = result.Data.Items;
+        }
+        
+        _isLoadingUserList = false;
+        StateHasChanged();
+    }
+}

@@ -32,6 +32,4 @@ FROM base AS final
 WORKDIR /app
 COPY --from=publish /app/publish .
 USER root
-RUN mkdir -p /app/wwwroot/media && chown -R $APP_UID:$APP_UID /app
-USER $APP_UID
-ENTRYPOINT ["dotnet", "InstagramClone.API.dll"]
+ENTRYPOINT ["sh", "-c", "mkdir -p /app/wwwroot/media/posts /app/wwwroot/media/avatars /app/wwwroot/media/stories /app/wwwroot/media/chats && chmod -R 777 /app/wwwroot/media && exec dotnet InstagramClone.API.dll"]

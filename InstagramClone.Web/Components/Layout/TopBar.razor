@@ -1,0 +1,45 @@
+@namespace InstagramClone.Web.Components.Layout
+@inject NavigationManager Navigation
+@inject AppState AppState
+@implements IDisposable
+
+<header class="md:hidden sticky top-0 bg-black border-b border-neutral-800 z-30 px-4 py-3 flex items-center justify-between select-none">
+    <!-- Logo -->
+    <a href="/" class="text-lg font-bold tracking-tight text-white font-sans">
+        Instagram
+    </a>
+
+    <!-- Mobile Top Actions -->
+    <div class="flex items-center space-x-5 text-neutral-300">
+        <NavLink href="notifications" class="relative">
+            <i class="fa-regular fa-heart text-xl hover:text-white transition-colors"></i>
+            @if (AppState.UnreadNotificationCount > 0)
+            {
+                <span class="absolute -top-1 -right-1 bg-insta-pink text-white text-[10px] font-bold h-4 w-4 rounded-full flex items-center justify-center border border-black">
+                    @(AppState.UnreadNotificationCount > 9 ? "9+" : AppState.UnreadNotificationCount)
+                </span>
+            }
+        </NavLink>
+
+        <NavLink href="chat">
+            <i class="fa-regular fa-paper-plane text-xl hover:text-white transition-colors"></i>
+        </NavLink>
+    </div>
+</header>
+
+@code {
+    protected override void OnInitialized()
+    {
+        AppState.OnStateChanged += HandleStateChanged;
+    }
+
+    private void HandleStateChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    public void Dispose()
+    {
+        AppState.OnStateChanged -= HandleStateChanged;
+    }
+}

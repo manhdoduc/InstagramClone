@@ -129,6 +129,7 @@ public class UserRepository(AppDbContext context, IMapper mapper) : IUserReposit
         var users = follows.Select(f => new UserSummaryDto
         {
             UserId = f.User.Id.ToString(),
+            UserName = f.User.UserName ?? "",
             FullName = f.User.FullName,
             AvatarUrl = f.User.AvatarUrl ?? "",
             IsFollowing = f.IsFollowing
@@ -175,6 +176,7 @@ public class UserRepository(AppDbContext context, IMapper mapper) : IUserReposit
         var users = follows.Select(f => new UserSummaryDto
         {
             UserId = f.User.Id.ToString(),
+            UserName = f.User.UserName ?? "",
             FullName = f.User.FullName,
             AvatarUrl = f.User.AvatarUrl ?? "",
             IsFollowing = f.IsFollowing

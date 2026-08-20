@@ -1,142 +1,169 @@
-# 📸 Instagram Clone API
+# 📸 Instagram Clone - Backend System & Architecture
 
-A robust, enterprise-ready, scalable backend API for an Instagram-like social media platform, built with **.NET 8** adhering strictly to **Clean Architecture** principles.
+An enterprise-ready, high-performance Social Media Backend API built with **.NET 8 (ASP.NET Core Web API)**, adhering strictly to **Clean Architecture** and **SOLID** principles. The system includes an integrated **Blazor Interactive Web Client** used as a reference UI to demonstrate and test the backend capabilities end-to-end.
 
-[![NET 8](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
-[![Docker Compose](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker)](https://www.docker.com/)
+[![.NET 8](https://img.shields.io/badge/.NET-8.0-512BD4?logo=dotnet)](https://dotnet.microsoft.com/)
+[![C# 12](https://img.shields.io/badge/C%23-12.0-239120?logo=csharp)](https://docs.microsoft.com/en-us/dotnet/csharp/)
 [![Entity Framework Core](https://img.shields.io/badge/EF%20Core-8.0-512BD4)](https://docs.microsoft.com/en-us/ef/core/)
+[![Docker Compose](https://img.shields.io/badge/Docker-Compose-2496ED?logo=docker)](https://www.docker.com/)
+[![SignalR](https://img.shields.io/badge/SignalR-Realtime%20WebSockets-512BD4)](https://dotnet.microsoft.com/apps/aspnet/signalr)
+[![Hangfire](https://img.shields.io/badge/Hangfire-Background%20Jobs-FF4154)](https://www.hangfire.io/)
+[![Redis](https://img.shields.io/badge/Redis-Distributed%20Cache-DC382D?logo=redis)](https://redis.io/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
 
-## 🚀 Key Features
+## 🏛️ System Architecture & Design
 
-- **🔐 Authentication & Authorization**: JWT Token authentication, Refresh Tokens, ASP.NET Core Identity with custom security policies.
-- **👤 User Management & Profiles**: User profile management, avatar uploads with automated ImageSharp resizing and compression.
-- **👥 Social Interactions**: Follow/Unfollow system, user activity feeds, notifications.
-- **📸 Content & Media**: Posts creation with multiple image uploads, post likes, comments, and nested comment chains.
-- **💬 Real-time Messaging (SignalR)**: Direct messaging system, SignalR hub for real-time notifications, typing indicators, and message media uploads.
-- **⚙️ Configurable Media Processing**: Configurable image dimensions and file size limits via `MediaSettings` (`appsettings.json`).
-- **⚡ Performance & Caching**: Redis / In-Memory caching layer, Rate Limiting middleware.
-- **📊 Observability & Health Monitoring**: Integrated Health Checks (UI at `/healthchecks-ui`), structured logging with **Serilog** & **Seq**.
-
----
-
-## 🏗 Architecture & Project Structure
-
-The project follows **Clean Architecture** and the **Repository & Unit of Work Patterns** to ensure high testability, maintainability, and clean separation of concerns.
+The backend is architected following **Clean Architecture (Onion Architecture)**, guaranteeing loose coupling, high maintainability, testability, and independence from external frameworks and database providers.
 
 ```text
 InstagramClone/
-├── InstagramClone.API/            # Presentation Layer: Controllers, Middlewares, SignalR Hubs, Filters
-├── InstagramClone.Application/    # Business Logic: DTOs, Services, Feature Handlers, Mappings, Interfaces
-├── InstagramClone.Infrastructure/ # Infrastructure: EF Core DbContext, Repositories, Caching, External Services
-├── InstagramClone.Domain/         # Domain Layer: Entities, Enums, Domain Constants
-├── InstagramClone.Common/         # Shared: Result wrapper, Helper utilities, Configuration Options
-├── nginx/                         # Reverse Proxy configuration & SSL
-└── docker-compose.yml             # Orchestration for API, SQL Server 2022, Redis, Seq & Nginx
+├── InstagramClone.Domain/         # Core Domain: Entities, Value Objects, Domain Enums, Exceptions
+├── InstagramClone.Application/    # Business Logic: CQRS/Services, DTOs, Mappings, FluentValidation, Interfaces
+├── InstagramClone.Infrastructure/ # Data Access: EF Core 8, MSSQL Repositories, Redis Cache, Hangfire Jobs, Identity
+├── InstagramClone.API/            # Presentation: RESTful Controllers, SignalR Hubs, Middlewares, Action Filters
+├── InstagramClone.Common/         # Cross-Cutting Concerns: Result<T> Pattern, Constants, Helper Utilities
+├── InstagramClone.Web/            # Demo Client: Blazor Server Web UI for live testing & interaction
+├── nginx/                         # Reverse Proxy & SSL Gateway
+└── docker-compose.yml             # Full-Stack Multi-Container Orchestration
 ```
+
+### 📐 Architectural Patterns & Design Highlights
+- **Repository & Unit of Work Pattern**: Abstraction over database operations ensuring transactional integrity and simplifying unit testing via mock repositories.
+- **Result Pattern (`Result<T>`)**: Unified error handling across all application layers without relying on expensive exception throwing for standard business validation.
+- **Cursor-based Pagination**: High-performance pagination for feeds, messages, and notifications to avoid performance degradation on large datasets.
+- **Action Filters & Model Validation**: Centralized FluentValidation and custom authorization ownership filters (`[AuthorizeOwnership]`).
 
 ---
 
-## 🛠 Tech Stack
+## ⚡ Core Backend Features & Capabilities
+
+### 1. 🔐 Security & Identity Management
+- **JWT Authentication & Token Lifecycle**: Access tokens (HMAC-SHA256) with secure Refresh Token rotation.
+- **ASP.NET Core Identity**: Custom User & Role stores with password hashing (PBKDF2/BCrypt) and account lockout policies.
+- **Resource-Based Authorization**: Attribute filters ensuring users can only edit/delete their own posts, comments, stories, and messages.
+
+### 2. 📸 Media Processing Pipeline
+- **Automated Processing with SixLabors ImageSharp**: Automatic image decompression, dimension normalization, aspect-ratio constraint enforcement, and quality optimization.
+- **Modular Storage Abstraction**: Extensible storage interface (`ILocalStorageService` / Cloud Storage ready) with MIME-type verification and file size validation.
+
+### 3. ⏱️ Distributed Background Processing (Hangfire)
+- **24-Hour Story Expiration Engine**: Automatic background job scheduling to deactivate stories after exactly 24 hours.
+- **Persistent Storage**: Jobs are persisted in SQL Server tables (`Hangfire.Job`, `Hangfire.State`), surviving application restarts.
+
+### 4. 💬 Real-Time WebSockets Engine (SignalR)
+- **ChatHub & NotificationHub**: Bi-directional communication for 1-1 Direct Messages and Group Chats.
+- **Realtime Features**: Instant message delivery, typing indicators, realtime emoji reactions (❤️, 😂, 🔥, 👍, 😮, 😢), and live notification broadcasting.
+
+### 5. 🚀 High-Performance Caching & Rate Limiting
+- **Distributed Caching (Redis) & Memory Cache**: Cache-aside strategy with automatic cache invalidation on mutations (user profiles, active stories, followers).
+- **Rate Limiting**: Built-in ASP.NET Core rate limiting middleware protecting API endpoints from spam and brute-force attacks.
+
+### 6. 📊 Observability, Logging & Diagnostics
+- **Structured Logging (Serilog & Seq)**: Enriched structured JSON logs with correlation IDs, request timing, and SQL execution tracing in Seq Console.
+- **Health Checks & Monitoring**: Endpoint `/health` and visual dashboard `/healthchecks-ui` monitoring SQL Server, Redis, and storage health.
+
+---
+
+## 🖥️ Client Applications & Interfaces
+
+While the core focus of this repository is the **Backend System & Architecture**, the solution provides two client interfaces for immediate testing and demonstration:
+
+1. **Blazor Server Web Client (`InstagramClone.Web`)**: An integrated client web app (built with Blazor Server & TailwindCSS) demonstrating complete real-time flows, feed interactions, stories, and direct messaging.
+2. **Swagger / OpenAPI (`/swagger`)**: Interactive documentation for exploring and testing RESTful endpoints.
+
+---
+
+## 🛠️ Backend Tech Stack
 
 | Category | Technology |
 | :--- | :--- |
-| **Framework** | .NET 8 (ASP.NET Core Web API) |
-| **Database** | SQL Server 2022 / Entity Framework Core 8 |
-| **Caching** | Redis / In-Memory Cache |
-| **Real-time** | ASP.NET Core SignalR |
-| **Object Mapping** | AutoMapper |
-| **Validation** | FluentValidation |
-| **Image Processing** | SixLabors ImageSharp |
-| **Logging & Monitoring** | Serilog, Seq Logs, ASP.NET Core HealthChecks UI |
-| **Reverse Proxy** | Nginx |
-| **Containerization** | Docker & Docker Compose |
+| **Framework** | .NET 8.0 (ASP.NET Core Web API) |
+| **Language** | C# 12 |
+| **ORM & Database** | Entity Framework Core 8.0, Microsoft SQL Server 2022 |
+| **Background Processing** | Hangfire (with SQL Server Storage) |
+| **Realtime Gateway** | ASP.NET Core SignalR (WebSockets) |
+| **Caching Layer** | Redis (Alpine) / Memory Cache |
+| **Media Processing** | SixLabors ImageSharp |
+| **Mapping & Validation** | AutoMapper, FluentValidation |
+| **Logging & Diagnostics** | Serilog, Seq Logs, ASP.NET Core HealthChecks UI |
+| **Containerization** | Docker & Docker Compose (Multi-Container Architecture) |
+| **Demo Client UI** | Blazor Interactive Server (.NET 8) |
 
 ---
 
-## ⚙️ Quick Start (1-Click Docker Setup)
+## 🐳 Quick Start with Docker Compose
 
-The entire application stack is containerized for seamless 1-click startup without manual software installation.
+The complete environment (Backend API, MSSQL Database, Redis, Seq Logs, and Blazor Web Client) is orchestrated with Docker Compose for seamless single-command setup.
 
 ### Prerequisites
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) installed and running.
 
-### 1. Clone & Environment Setup
+### 1. Clone & Configuration
 ```bash
 git clone https://github.com/manhdoduc/InstagramClone.git
 cd InstagramClone
 
-# Copy the example environment variables file
+# Copy example environment configuration
 cp .env.example .env
 ```
 
-### 2. Launch with Docker Compose
-Run the following single command to build and start all containers (API, SQL Server, Redis, Seq Logs, Nginx):
-
+### 2. Start the Stack
 ```bash
 docker compose up -d --build
 ```
 
-> **Note**: Database migrations apply automatically during application startup in containerized environments. No manual `dotnet ef database update` is required!
+> **Note**: Database schema migrations and media directory permissions (`/app/wwwroot/media`) are applied automatically upon container startup. No manual migration command is needed.
 
 ---
 
 ## 🌐 Service Endpoints
 
-Once the containers are running, you can access the services at the following URLs:
-
-| Service | Access URL | Description |
+| Service | URL | Description |
 | :--- | :--- | :--- |
-| **Swagger UI** | [http://localhost:5063/swagger](http://localhost:5063/swagger) | Interactive API Documentation |
-| **HealthChecks UI** | [http://localhost:5063/healthchecks-ui](http://localhost:5063/healthchecks-ui) | Real-time System & DB Health Dashboard |
-| **Seq Log Console** | [http://localhost:5342](http://localhost:5342) | Centralized Structured Log Viewer |
-| **Nginx HTTPS Proxy** | [https://localhost:44391](https://localhost:44391) | Reverse Proxy Entry Point |
+| 🌐 **Web Client (Blazor UI Demo)** | **[http://localhost:5242](http://localhost:5242)** | Integrated Reference Client UI |
+| 📑 **Swagger API Docs** | [http://localhost:5063/swagger](http://localhost:5063/swagger) | Interactive API Explorer & Schema Docs |
+| 🩺 **HealthChecks UI** | [http://localhost:5063/healthchecks-ui](http://localhost:5063/healthchecks-ui) | Real-time System & Infrastructure Health |
+| 📜 **Seq Log Server** | [http://localhost:5342](http://localhost:5342) | Centralized Structured Log Viewer |
+| 🔒 **Nginx Proxy** | [https://localhost:44391](https://localhost:44391) | Reverse Proxy Gateway |
 
 ---
 
-## 🔧 Configuration (`MediaSettings`)
+## 💻 Local Development Setup (Manual CLI)
 
-Media limits and image resize target dimensions can be adjusted centrally in `InstagramClone.API/appsettings.json`:
+To run the backend services without Docker:
 
-```json
-"MediaSettings": {
-  "MaxFileSizeBytes": 5242880,
-  "Avatar": {
-    "MaxWidth": 500,
-    "MaxHeight": 500
-  },
-  "Post": {
-    "MaxWidth": 1080,
-    "MaxHeight": 1350
-  },
-  "ChatImage": {
-    "MaxWidth": 400,
-    "MaxHeight": 400
-  }
-}
-```
-
----
-
-## 💻 Manual Local Development (Without Docker)
-
-If you prefer running the API locally via `dotnet run`:
-
-1. Ensure a local SQL Server / Redis instance is running.
-2. Update connection strings in `InstagramClone.API/appsettings.Development.json`.
-3. Apply database migrations:
+1. Ensure local instances of **SQL Server** and **Redis** are active.
+2. Configure connection strings in `InstagramClone.API/appsettings.Development.json`.
+3. Apply Entity Framework migrations:
    ```bash
    dotnet ef database update --project InstagramClone.Infrastructure --startup-project InstagramClone.API
    ```
-4. Run the API project:
+4. Start Backend API:
    ```bash
    dotnet run --project InstagramClone.API
    ```
+5. Start Blazor Client (Optional - in a separate terminal):
+   ```bash
+   dotnet run --project InstagramClone.Web
+   ```
+
+---
+
+## 🧪 Testing & Code Quality
+
+The backend features extensive automated test suites:
+- **Unit Tests (`InstagramClone.Application.UnitTests`)**: Testing business logic, services, and DTO mappings with Moq and xUnit.
+- **Infrastructure Tests (`InstagramClone.Infrastructure.UnitTests`)**: Testing repository operations, caching, and storage handlers.
+
+Run all tests via CLI:
+```bash
+dotnet test
+```
 
 ---
 
 ## 📝 License
 
-This project is licensed under the [MIT License](LICENSE).
+Distributed under the [MIT License](LICENSE).

@@ -1,0 +1,50 @@
+@namespace InstagramClone.Web.Components.Common
+
+<Modal IsOpen="IsOpen" IsOpenChanged="IsOpenChanged" Title="@Title" MaxWidth="sm">
+    <div class="text-center py-4 space-y-3">
+        @if (!string.IsNullOrEmpty(Message))
+        {
+            <p class="text-sm text-neutral-300">@Message</p>
+        }
+    </div>
+
+    <div class="flex items-center space-x-3 mt-4 pt-3 border-t border-neutral-800">
+        <button @onclick="Cancel" class="flex-1 py-2 px-4 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 font-semibold text-xs rounded-lg transition-colors">
+            @CancelText
+        </button>
+        <button @onclick="Confirm" class="flex-1 py-2 px-4 @ConfirmButtonClass font-semibold text-xs rounded-lg transition-colors" disabled="@IsLoading">
+            @if (IsLoading)
+            {
+                <i class="fa-solid fa-circle-notch animate-spin mr-1"></i>
+            }
+            @ConfirmText
+        </button>
+    </div>
+</Modal>
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+    [Parameter] public string Title { get; set; } = "Xác nhận";
+    [Parameter] public string Message { get; set; } = "Bạn có chắc chắn muốn thực hiện hành động này?";
+    [Parameter] public string ConfirmText { get; set; } = "Xác nhận";
+    [Parameter] public string CancelText { get; set; } = "Hủy";
+    [Parameter] public bool IsDanger { get; set; } = true;
+    [Parameter] public bool IsLoading { get; set; } = false;
+    [Parameter] public EventCallback OnConfirm { get; set; }
+
+    private string ConfirmButtonClass => IsDanger
+        ? "bg-red-600 hover:bg-red-700 text-white"
+        : "bg-insta-blue hover:bg-insta-blue-hover text-white";
+
+    private async Task Confirm()
+    {
+        await OnConfirm.InvokeAsync();
+    }
+
+    private async Task Cancel()
+    {
+        IsOpen = false;
+        await IsOpenChanged.InvokeAsync(false);
+    }
+}

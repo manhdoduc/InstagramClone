@@ -1,0 +1,68 @@
+@namespace InstagramClone.Web.Components.Stories
+@inject IStoryService StoryService
+
+<div class="bg-black border border-neutral-800 rounded-xl p-4 flex items-center space-x-4 overflow-x-auto no-scrollbar select-none">
+    <!-- 1. My Story Circle -->
+    <div class="flex flex-col items-center space-y-1.5 flex-shrink-0 cursor-pointer group" @onclick="HandleMyStoryClick">
+        <div class="relative">
+            <Avatar AvatarUrl="@CurrentUserAvatar" 
+                    Alt="@CurrentUserName" 
+                    Size="lg" 
+                    HasStory="@(MyStoryGroup != null && MyStoryGroup.Stories.Count > 0)" />
+            
+            <button type="button" 
+                    @onclick="() => OnCreateStoryRequested.InvokeAsync()" 
+                    @onclick:stopPropagation="true"
+                    title="Đăng thêm tin mới"
+                    class="absolute bottom-0 right-0 w-4 h-4 bg-insta-blue hover:bg-sky-500 rounded-full border-2 border-black flex items-center justify-center text-white text-[9px] shadow transition-transform hover:scale-110">
+                <i class="fa-solid fa-plus"></i>
+            </button>
+        </div>
+        <span class="text-[11px] text-neutral-300 truncate max-w-[68px]">Tin của bạn</span>
+    </div>
+
+    <!-- 2. Other Users' Stories -->
+    @if (StoryFeeds != null)
+    {
+        @foreach (var userFeed in OtherUsersStoryFeeds)
+        {
+            var feed = userFeed;
+            <div class="flex flex-col items-center space-y-1.5 flex-shrink-0 cursor-pointer group" 
+                 @onclick="() => OnUserStoryClicked.InvokeAsync(feed)">
+                <Avatar AvatarUrl="@feed.AvatarUrl" 
+                        Alt="@feed.UserName" 
+                        Size="lg" 
+                        HasStory="true" />
+                <span class="text-[11px] text-neutral-300 truncate max-w-[68px]">@feed.UserName</span>
+            </div>
+        }
+    }
+</div>
+
+@code {
+    [Parameter] public string? CurrentUserAvatar { get; set; }
+    [Parameter] public string CurrentUserName { get; set; } = "Bạn";
+    [Parameter] public Guid CurrentUserId { get; set; }
+    [Parameter] public List<UserStoryFeedDto> StoryFeeds { get; set; } = [];
+    
+    [Parameter] public EventCallback OnCreateStoryRequested { get; set; }
+    [Parameter] public EventCallback<UserStoryFeedDto> OnUserStoryClicked { get; set; }
+
+    private UserStoryFeedDto? MyStoryGroup => 
+        StoryFeeds.FirstOrDefault(f => f.UserId == CurrentUserId);
+
+    private IEnumerable<UserStoryFeedDto> OtherUsersStoryFeeds => 
+        StoryFeeds.Where(f => f.UserId != CurrentUserId);
+
+    private async Task HandleMyStoryClick()
+    {
+        if (MyStoryGroup != null && MyStoryGroup.Stories.Count > 0)
+        {
+            await OnUserStoryClicked.InvokeAsync(MyStoryGroup);
+        }
+        else
+        {
+            await OnCreateStoryRequested.InvokeAsync();
+        }
+    }
+}

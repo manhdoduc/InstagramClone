@@ -1,0 +1,200 @@
+@namespace InstagramClone.Web.Components.Stories
+@inject IStoryService StoryService
+
+<Modal IsOpen="IsOpen" IsOpenChanged="IsOpenChanged" Title="Tạo tin mới (24h)" MaxWidth="md">
+    <div class="space-y-4">
+        <!-- Error Banner -->
+        <ErrorMessage Message="@_errorMessage" />
+
+        <!-- 1. Single Image Selector & Preview -->
+        <div>
+            <label class="block text-xs font-semibold text-neutral-300 mb-2">
+                Ảnh tin của bạn <span class="text-neutral-500 font-normal">(Chỉ chọn 1 ảnh duy nhất, tỉ lệ 9:16)</span>
+            </label>
+
+            <!-- File Upload Dropzone (When no file selected) -->
+            <div style="@(_selectedFile == null ? "" : "display: none;")">
+                <div class="border-2 border-dashed border-neutral-700 hover:border-insta-gradient-start/60 rounded-xl p-8 text-center flex flex-col items-center justify-center space-y-3 cursor-pointer bg-neutral-900/50 hover:bg-neutral-900/80 transition-all relative">
+                    <InputFile OnChange="HandleFileSelected" accept="image/jpeg,image/png,image/webp" class="absolute inset-0 opacity-0 cursor-pointer w-full h-full" />
+                    <div class="w-14 h-14 rounded-full bg-gradient-to-tr from-insta-gradient-start via-insta-gradient-middle to-insta-gradient-end flex items-center justify-center text-white shadow-lg">
+                        <i class="fa-solid fa-camera text-2xl"></i>
+                    </div>
+                    <div class="space-y-1">
+                        <p class="text-xs font-semibold text-white">Chọn 1 ảnh từ thiết bị của bạn</p>
+                        <p class="text-[11px] text-neutral-400">JPG, PNG, WEBP (tối đa 10MB)</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Single Image 9:16 Preview (When file selected) -->
+            @if (_selectedFile != null)
+            {
+                <div class="relative w-full max-w-[280px] mx-auto aspect-[9/16] rounded-xl overflow-hidden bg-black border border-neutral-800 shadow-2xl group">
+                    @if (!string.IsNullOrEmpty(_previewUrl))
+                    {
+                        <img src="@_previewUrl" class="w-full h-full object-cover" alt="Story preview" />
+                    }
+                    else
+                    {
+                        <div class="w-full h-full flex items-center justify-center text-neutral-500 text-xs">
+                            <i class="fa-solid fa-spinner fa-spin text-xl mr-2"></i> Đang tải ảnh...
+                        </div>
+                    }
+
+                    <!-- Remove Button -->
+                    <button type="button" @onclick="RemoveFile" class="absolute top-3 right-3 w-8 h-8 rounded-full bg-black/70 hover:bg-red-600 text-white flex items-center justify-center transition-all shadow-md">
+                        <i class="fa-solid fa-xmark text-sm"></i>
+                    </button>
+
+                    <!-- Overlay Caption Preview -->
+                    @if (!string.IsNullOrWhiteSpace(_caption))
+                    {
+                        <div class="absolute bottom-4 inset-x-4 p-2.5 rounded-lg bg-black/60 backdrop-blur-sm text-white text-xs text-center border border-white/10 break-words">
+                            @_caption
+                        </div>
+                    }
+                </div>
+            }
+        </div>
+
+        <!-- 2. Caption Input -->
+        <div>
+            <label class="block text-xs font-semibold text-neutral-300 mb-1.5">Mô tả / Caption (tùy chọn)</label>
+            <div class="relative">
+                <textarea @bind="_caption" 
+                          @bind:event="oninput" 
+                          rows="2" 
+                          maxlength="500" 
+                          placeholder="Nhập cảm nghĩ của bạn về tin này..." 
+                          class="w-full bg-neutral-900 border border-neutral-700 rounded-lg p-3 text-xs text-white placeholder-neutral-500 focus:outline-none focus:border-insta-blue focus:ring-1 focus:ring-insta-blue transition resize-none"></textarea>
+                <span class="absolute bottom-2 right-2 text-[10px] text-neutral-500">
+                    @(_caption?.Length ?? 0)/500
+                </span>
+            </div>
+        </div>
+
+        <!-- 3. Hangfire Info Banner -->
+        <div class="flex items-center space-x-2 text-[11px] text-neutral-400 bg-neutral-900/60 p-2.5 rounded-lg border border-neutral-800">
+            <i class="fa-regular fa-clock text-insta-blue text-sm"></i>
+            <span>Tin của bạn sẽ tự động biến mất sau <strong>24 giờ</strong>.</span>
+        </div>
+
+        <!-- 4. Action Buttons -->
+        <div class="flex justify-end space-x-2 pt-2 border-t border-neutral-800">
+            <button type="button" 
+                    @onclick="Close" 
+                    disabled="@_isSubmitting"
+                    class="px-4 py-2 text-xs font-semibold text-neutral-300 hover:text-white rounded-lg hover:bg-neutral-800 transition">
+                Hủy
+            </button>
+            <button type="button" 
+                    @onclick="HandleSubmit" 
+                    disabled="@(_selectedFile == null || _isSubmitting)" 
+                    class="px-5 py-2 text-xs font-semibold text-white bg-insta-blue hover:bg-sky-600 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg transition flex items-center space-x-1.5 shadow">
+                @if (_isSubmitting)
+                {
+                    <i class="fa-solid fa-spinner fa-spin text-xs"></i>
+                    <span>Đang đăng...</span>
+                }
+                else
+                {
+                    <i class="fa-solid fa-paper-plane text-xs"></i>
+                    <span>Chia sẻ lên tin</span>
+                }
+            </button>
+        </div>
+    </div>
+</Modal>
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+    [Parameter] public EventCallback OnStoryCreated { get; set; }
+
+    private IBrowserFile? _selectedFile;
+    private string? _previewUrl;
+    private string? _caption;
+    private bool _isSubmitting = false;
+    private string? _errorMessage;
+
+    private async Task HandleFileSelected(InputFileChangeEventArgs e)
+    {
+        _errorMessage = null;
+        var file = e.File;
+        if (file == null) return;
+
+        if (file.Size > 10 * 1024 * 1024)
+        {
+            _errorMessage = "Ảnh quá lớn. Vui lòng chọn ảnh nhỏ hơn 10MB.";
+            return;
+        }
+
+        _selectedFile = file;
+
+        try
+        {
+            var resizedFile = await file.RequestImageFileAsync(file.ContentType, 400, 711);
+            using var stream = resizedFile.OpenReadStream(maxAllowedSize: 10 * 1024 * 1024);
+            using var ms = new MemoryStream();
+            await stream.CopyToAsync(ms);
+            var base64 = Convert.ToBase64String(ms.ToArray());
+            _previewUrl = $"data:{file.ContentType};base64,{base64}";
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Không thể đọc file ảnh: {ex.Message}";
+        }
+    }
+
+    private void RemoveFile()
+    {
+        _selectedFile = null;
+        _previewUrl = null;
+    }
+
+    private async Task HandleSubmit()
+    {
+        if (_selectedFile == null || _isSubmitting) return;
+
+        _isSubmitting = true;
+        _errorMessage = null;
+
+        try
+        {
+            var result = await StoryService.CreateStoryAsync(_selectedFile, _caption);
+            if (result.IsSuccess)
+            {
+                Reset();
+                await IsOpenChanged.InvokeAsync(false);
+                await OnStoryCreated.InvokeAsync();
+            }
+            else
+            {
+                _errorMessage = result.ErrorMessage ?? "Không thể tạo tin mới. Vui lòng thử lại.";
+            }
+        }
+        catch (Exception ex)
+        {
+            _errorMessage = $"Đã xảy ra lỗi: {ex.Message}";
+        }
+        finally
+        {
+            _isSubmitting = false;
+        }
+    }
+
+    private async Task Close()
+    {
+        Reset();
+        await IsOpenChanged.InvokeAsync(false);
+    }
+
+    private void Reset()
+    {
+        _selectedFile = null;
+        _previewUrl = null;
+        _caption = null;
+        _errorMessage = null;
+        _isSubmitting = false;
+    }
+}

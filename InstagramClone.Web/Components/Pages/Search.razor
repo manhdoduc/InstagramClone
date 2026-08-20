@@ -1,0 +1,163 @@
+@page "/search"
+@attribute [Authorize]
+@inject IUserService UserService
+@inject IPostService PostService
+@inject IFollowService FollowService
+@inject NavigationManager Navigation
+
+<PageTitle>Tìm kiếm • Instagram</PageTitle>
+
+<div class="max-w-[700px] mx-auto px-4 py-6 space-y-6">
+    <!-- Search Bar Input -->
+    <div class="relative">
+        <i class="fa-solid fa-magnifying-glass absolute left-4 top-1/2 -translate-y-1/2 text-neutral-400 text-sm"></i>
+        <input type="text" 
+               @bind="_searchQuery" 
+               @bind:event="oninput" 
+               @onkeyup="HandleKeyUp"
+               placeholder="Tìm kiếm người dùng (@@username) hoặc bài viết (#hashtag)..." 
+               class="w-full pl-11 pr-10 py-3 bg-neutral-900 border border-neutral-800 rounded-xl text-sm text-white placeholder-neutral-500 focus:outline-none focus:border-neutral-600 transition-colors" />
+        
+        @if (!string.IsNullOrEmpty(_searchQuery))
+        {
+            <button @onclick="ClearSearch" class="absolute right-4 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-white">
+                <i class="fa-solid fa-circle-xmark text-sm"></i>
+            </button>
+        }
+    </div>
+
+    <!-- Search Tabs -->
+    <div class="flex items-center space-x-6 border-b border-neutral-800 pb-3 text-xs font-semibold select-none">
+        <button @onclick='() => _activeTab = "users"' class="pb-2 border-b-2 transition-colors @(_activeTab == "users" ? "border-white text-white" : "border-transparent text-neutral-400 hover:text-neutral-200")">
+            Tài khoản người dùng
+        </button>
+        <button @onclick='() => _activeTab = "posts"' class="pb-2 border-b-2 transition-colors @(_activeTab == "posts" ? "border-white text-white" : "border-transparent text-neutral-400 hover:text-neutral-200")">
+            Bài viết & Hashtag
+        </button>
+    </div>
+
+    <!-- Results Section -->
+    @if (_isSearching)
+    {
+        <LoadingSpinner Size="md" Text="Đang tìm kiếm..." />
+    }
+    else if (string.IsNullOrWhiteSpace(_searchQuery))
+    {
+        <EmptyState Title="Tìm kiếm trên Instagram" Description="Nhập từ khóa tên người dùng, email hoặc #hashtag để bắt đầu tìm kiếm." IconClass="fa-solid fa-magnifying-glass" />
+    }
+    else if (_activeTab == "users")
+    {
+        @if (_users.Count > 0)
+        {
+            <div class="space-y-3 bg-neutral-900/40 border border-neutral-800 rounded-xl p-4">
+                @foreach (var user in _users)
+                {
+                    var u = user;
+                    <div class="flex items-center justify-between p-2 hover:bg-neutral-800/60 rounded-lg transition-colors">
+                        <a href="@($"/profile/{u.UserId}")" class="flex items-center space-x-3 group flex-1">
+                            <Avatar AvatarUrl="@u.AvatarUrl" Alt="@u.FullName" Size="md" />
+                            <div class="flex flex-col">
+                                <span class="text-xs font-semibold text-white group-hover:underline">@u.FullName</span>
+                                @if (!string.IsNullOrWhiteSpace(u.UserName))
+                                {
+                                    <span class="text-[11px] text-neutral-400">@@@u.UserName</span>
+                                }
+                            </div>
+                        </a>
+                        <button @onclick="() => ToggleFollow(u)" class="px-4 py-1.5 bg-insta-blue hover:bg-insta-blue-hover text-white text-xs font-semibold rounded-lg transition-colors">
+                            @(u.IsFollowing ? "Đã theo dõi" : "Theo dõi")
+                        </button>
+                    </div>
+                }
+            </div>
+        }
+        else
+        {
+            <EmptyState Title="Không tìm thấy kết quả" Description="Không tìm thấy tài khoản người dùng nào khớp với từ khóa của bạn." IconClass="fa-solid fa-user-slash" />
+        }
+    }
+    else if (_activeTab == "posts")
+    {
+        @if (_posts.Count > 0)
+        {
+            <PostGrid Posts="_posts" OnPostSelected="OpenPostModal" />
+        }
+        else
+        {
+            <EmptyState Title="Không tìm thấy bài viết" Description="Không tìm thấy bài viết hoặc hashtag nào phù hợp." IconClass="fa-solid fa-images" />
+        }
+    }
+</div>
+
+<!-- Post Detail Modal -->
+@if (_selectedPostId != Guid.Empty)
+{
+    <PostDetailModal @bind-IsOpen="_isPostDetailOpen" PostId="_selectedPostId" />
+}
+
+@code {
+    private string _searchQuery = string.Empty;
+    private string _activeTab = "users";
+    private bool _isSearching = false;
+
+    private List<UserSummaryDto> _users = new();
+    private List<PostDto> _posts = new();
+
+    private Guid _selectedPostId = Guid.Empty;
+    private bool _isPostDetailOpen = false;
+
+    private async Task HandleKeyUp(KeyboardEventArgs e)
+    {
+        if (string.IsNullOrWhiteSpace(_searchQuery))
+        {
+            _users.Clear();
+            _posts.Clear();
+            return;
+        }
+
+        await ExecuteSearch();
+    }
+
+    private async Task ExecuteSearch()
+    {
+        _isSearching = true;
+
+        if (_activeTab == "users")
+        {
+            var result = await UserService.SearchUsersAsync(_searchQuery);
+            if (result.IsSuccess && result.Data != null)
+            {
+                _users = result.Data;
+            }
+        }
+        else
+        {
+            var result = await PostService.SearchPostsAsync(_searchQuery, new PaginationRequest { PageSize = 12 });
+            if (result.IsSuccess && result.Data != null)
+            {
+                _posts = result.Data.Items;
+            }
+        }
+
+        _isSearching = false;
+    }
+
+    private void ClearSearch()
+    {
+        _searchQuery = string.Empty;
+        _users.Clear();
+        _posts.Clear();
+    }
+
+    private async Task ToggleFollow(UserSummaryDto user)
+    {
+        user.IsFollowing = !user.IsFollowing;
+        await FollowService.ToggleFollowAsync(user.UserId);
+    }
+
+    private void OpenPostModal(Guid postId)
+    {
+        _selectedPostId = postId;
+        _isPostDetailOpen = true;
+    }
+}

@@ -21,18 +21,18 @@ namespace InstagramClone.Infrastructure.Services
             // 1/ Kiểm tra file có tồn tại và không rỗng
             if (file is null || file.Length <= 0)
             {
-                return Result<string>.Failure(new Error(ErrorCodes.Failure, "File empty, file not empty"));
+                return Result<string>.Failure(new Error(ErrorCodes.BadRequest, "File is empty."));
             }
 
             if(file.Length > _mediaSettings.MaxFileSizeBytes)
             {
-                return Result<string>.Failure(new Error(ErrorCodes.Failure, $"File too large, file must be <= {_mediaSettings.MaxFileSizeBytes / (1024 * 1024)}MB"));
+                return Result<string>.Failure(new Error(ErrorCodes.BadRequest, $"File too large, file must be <= {_mediaSettings.MaxFileSizeBytes / (1024 * 1024)}MB"));
             }
             // 2. Kiểm tra định dạng file có hợp lệ không (chỉ cho phép .jpg, .jpeg, .png, .webp)
             var extention = Path.GetExtension(file.FileName).ToLowerInvariant();
             if(!_allowExtention.Contains(extention) || !file.ContentType.StartsWith("image/"))
             {
-                return Result<string>.Failure(new Error(ErrorCodes.Failure, "File extention not allowed, file extention must be .jpg, .jpeg, .png, .webp"));
+                return Result<string>.Failure(new Error(ErrorCodes.BadRequest, "File extension not allowed. Supported formats: .jpg, .jpeg, .png, .webp"));
             }
 
             try

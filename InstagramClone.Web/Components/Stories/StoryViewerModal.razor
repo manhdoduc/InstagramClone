@@ -1,0 +1,337 @@
+@namespace InstagramClone.Web.Components.Stories
+@inject IStoryService StoryService
+@inject IJSRuntime JSRuntime
+@implements IDisposable
+
+@if (IsOpen && CurrentStory != null && CurrentUserFeed != null)
+{
+    <div class="fixed inset-0 z-50 bg-black/95 flex items-center justify-center select-none backdrop-blur-md" 
+         @onkeydown="HandleKeyDown" tabindex="0">
+        
+        <!-- Close Button (Top Right) -->
+        <button type="button" 
+                @onclick="Close" 
+                class="absolute top-4 right-4 z-50 w-10 h-10 rounded-full bg-neutral-900/80 hover:bg-neutral-800 text-white flex items-center justify-center transition-colors">
+            <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+
+        <!-- Previous User Feed Arrow (Desktop) -->
+        @if (HasPrevUserFeed)
+        {
+            <button type="button" 
+                    @onclick="GoToPrevUserFeed" 
+                    class="hidden md:flex absolute left-8 z-40 w-11 h-11 rounded-full bg-white/15 hover:bg-white/30 text-white items-center justify-center transition-all">
+                <i class="fa-solid fa-chevron-left text-lg"></i>
+            </button>
+        }
+
+        <!-- Next User Feed Arrow (Desktop) -->
+        @if (HasNextUserFeed)
+        {
+            <button type="button" 
+                    @onclick="GoToNextUserFeed" 
+                    class="hidden md:flex absolute right-8 z-40 w-11 h-11 rounded-full bg-white/15 hover:bg-white/30 text-white items-center justify-center transition-all">
+                <i class="fa-solid fa-chevron-right text-lg"></i>
+            </button>
+        }
+
+        <!-- Main Story Player Container (Instagram Phone Aspect Ratio) -->
+        <div class="relative w-full max-w-[420px] h-[92vh] max-h-[850px] bg-neutral-950 rounded-2xl overflow-hidden shadow-2xl border border-neutral-800 flex flex-col justify-between"
+             @onmousedown="PauseTimer" 
+             @onmouseup="ResumeTimer"
+             @ontouchstart="PauseTimer" 
+             @ontouchend="ResumeTimer">
+
+            <!-- 1. Top Header & Segmented Progress Bars -->
+            <div class="absolute top-0 inset-x-0 z-30 p-3.5 bg-gradient-to-b from-black/80 via-black/40 to-transparent space-y-2.5">
+                <!-- Segmented Progress Bar -->
+                <div class="flex space-x-1.5 items-center w-full">
+                    @for (int i = 0; i < CurrentUserFeed.Stories.Count; i++)
+                    {
+                        var index = i;
+                        <div class="flex-1 h-1 bg-white/30 rounded-full overflow-hidden">
+                            <div class="h-full bg-white transition-all ease-linear"
+                                 style="@GetProgressBarStyle(index)"></div>
+                        </div>
+                    }
+                </div>
+
+                <!-- Author Profile Info & Controls -->
+                <div class="flex items-center justify-between">
+                    <div class="flex items-center space-x-2.5">
+                        <Avatar AvatarUrl="@CurrentUserFeed.AvatarUrl" Alt="@CurrentUserFeed.UserName" Size="sm" />
+                        <div class="flex items-center space-x-2">
+                            <span class="text-xs font-semibold text-white">@CurrentUserFeed.UserName</span>
+                            <span class="text-[11px] text-neutral-300">
+                                @FormatTimeAgo(CurrentStory.CreatedAt)
+                            </span>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center space-x-2">
+                        @if (CurrentStory.IsMyStory)
+                        {
+                            <button type="button" 
+                                    @onclick="HandleAddStory" 
+                                    title="Đăng thêm tin mới"
+                                    class="px-2.5 py-1 rounded-full bg-white/20 hover:bg-white/30 text-white text-xs font-semibold flex items-center space-x-1 transition-colors">
+                                <i class="fa-solid fa-plus text-[10px]"></i>
+                                <span>Thêm tin</span>
+                            </button>
+                            <button type="button" 
+                                    @onclick="HandleDeleteCurrentStory" 
+                                    title="Xóa tin này"
+                                    class="w-7 h-7 rounded-full bg-red-600/80 hover:bg-red-600 text-white flex items-center justify-center transition-colors">
+                                <i class="fa-regular fa-trash-can text-xs"></i>
+                            </button>
+                        }
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. Story Media Content -->
+            <div class="relative w-full h-full flex items-center justify-center bg-black overflow-hidden">
+                <img src="@CurrentStory.MediaUrl" 
+                     class="w-full h-full object-cover select-none" 
+                     alt="Story content" />
+
+                <!-- Left / Right Click Navigators (Touch/Click areas) -->
+                <div class="absolute inset-y-0 left-0 w-1/3 z-20 cursor-pointer" @onclick="GoToPrevStory"></div>
+                <div class="absolute inset-y-0 right-0 w-2/3 z-20 cursor-pointer" @onclick="GoToNextStory"></div>
+            </div>
+
+            <!-- 3. Caption Overlay (Bottom) -->
+            @if (!string.IsNullOrWhiteSpace(CurrentStory.Caption))
+            {
+                <div class="absolute bottom-0 inset-x-0 z-30 p-4 bg-gradient-to-t from-black/90 via-black/50 to-transparent">
+                    <div class="p-3 rounded-xl bg-black/60 backdrop-blur-md border border-white/10 text-white text-xs text-center break-words leading-relaxed shadow-lg">
+                        @CurrentStory.Caption
+                    </div>
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+    [Parameter] public List<UserStoryFeedDto> AllUserFeeds { get; set; } = [];
+    [Parameter] public UserStoryFeedDto? InitialUserFeed { get; set; }
+    [Parameter] public EventCallback OnStoryDeleted { get; set; }
+    [Parameter] public EventCallback OnAddStoryRequested { get; set; }
+
+    private int _currentUserFeedIndex = 0;
+    private int _currentStoryIndex = 0;
+    private System.Threading.Timer? _progressTimer;
+    private double _currentProgressPercent = 0;
+    private bool _isPaused = false;
+    private const double StoryDurationSeconds = 5.0;
+    private const int TickIntervalMs = 50;
+
+    private UserStoryFeedDto? CurrentUserFeed => 
+        AllUserFeeds.Count > _currentUserFeedIndex && _currentUserFeedIndex >= 0 
+            ? AllUserFeeds[_currentUserFeedIndex] 
+            : null;
+
+    private StoryDto? CurrentStory => 
+        CurrentUserFeed != null && CurrentUserFeed.Stories.Count > _currentStoryIndex && _currentStoryIndex >= 0
+            ? CurrentUserFeed.Stories[_currentStoryIndex] 
+            : null;
+
+    private bool HasPrevUserFeed => _currentUserFeedIndex > 0;
+    private bool HasNextUserFeed => _currentUserFeedIndex < AllUserFeeds.Count - 1;
+
+    protected override void OnParametersSet()
+    {
+        if (IsOpen && InitialUserFeed != null && AllUserFeeds.Count > 0)
+        {
+            var targetIndex = AllUserFeeds.FindIndex(f => f.UserId == InitialUserFeed.UserId);
+            if (targetIndex >= 0)
+            {
+                _currentUserFeedIndex = targetIndex;
+                _currentStoryIndex = 0;
+                StartStoryTimer();
+            }
+        }
+    }
+
+    private void StartStoryTimer()
+    {
+        StopTimer();
+        _currentProgressPercent = 0;
+        _isPaused = false;
+
+        _progressTimer = new System.Threading.Timer(async _ =>
+        {
+            if (_isPaused) return;
+
+            _currentProgressPercent += (TickIntervalMs / (StoryDurationSeconds * 1000.0)) * 100.0;
+
+            if (_currentProgressPercent >= 100)
+            {
+                _currentProgressPercent = 100;
+                await InvokeAsync(GoToNextStory);
+            }
+            else
+            {
+                await InvokeAsync(StateHasChanged);
+            }
+        }, null, 0, TickIntervalMs);
+    }
+
+    private void StopTimer()
+    {
+        _progressTimer?.Dispose();
+        _progressTimer = null;
+    }
+
+    private void PauseTimer()
+    {
+        _isPaused = true;
+    }
+
+    private void ResumeTimer()
+    {
+        _isPaused = false;
+    }
+
+    private void GoToNextStory()
+    {
+        if (CurrentUserFeed == null) return;
+
+        if (_currentStoryIndex < CurrentUserFeed.Stories.Count - 1)
+        {
+            _currentStoryIndex++;
+            StartStoryTimer();
+        }
+        else if (HasNextUserFeed)
+        {
+            _currentUserFeedIndex++;
+            _currentStoryIndex = 0;
+            StartStoryTimer();
+        }
+        else
+        {
+            Close();
+        }
+    }
+
+    private void GoToPrevStory()
+    {
+        if (_currentStoryIndex > 0)
+        {
+            _currentStoryIndex--;
+            StartStoryTimer();
+        }
+        else if (HasPrevUserFeed)
+        {
+            _currentUserFeedIndex--;
+            if (CurrentUserFeed != null)
+            {
+                _currentStoryIndex = CurrentUserFeed.Stories.Count - 1;
+            }
+            StartStoryTimer();
+        }
+        else
+        {
+            _currentProgressPercent = 0;
+        }
+    }
+
+    private void GoToNextUserFeed()
+    {
+        if (HasNextUserFeed)
+        {
+            _currentUserFeedIndex++;
+            _currentStoryIndex = 0;
+            StartStoryTimer();
+        }
+    }
+
+    private void GoToPrevUserFeed()
+    {
+        if (HasPrevUserFeed)
+        {
+            _currentUserFeedIndex--;
+            _currentStoryIndex = 0;
+            StartStoryTimer();
+        }
+    }
+
+    private string GetProgressBarStyle(int storyIndex)
+    {
+        if (storyIndex < _currentStoryIndex)
+        {
+            return "width: 100%;";
+        }
+        else if (storyIndex == _currentStoryIndex)
+        {
+            return $"width: {_currentProgressPercent}%;";
+        }
+        else
+        {
+            return "width: 0%;";
+        }
+    }
+
+    private async Task HandleAddStory()
+    {
+        Close();
+        await OnAddStoryRequested.InvokeAsync();
+    }
+
+    private async Task HandleDeleteCurrentStory()
+    {
+        if (CurrentStory == null) return;
+
+        var confirmed = true; // Delete confirmation
+        if (confirmed)
+        {
+            var storyId = CurrentStory.Id;
+            var result = await StoryService.DeleteStoryAsync(storyId);
+            if (result.IsSuccess)
+            {
+                await OnStoryDeleted.InvokeAsync();
+                Close();
+            }
+        }
+    }
+
+    private void HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (e.Key == "ArrowRight" || e.Key == " ")
+        {
+            GoToNextStory();
+        }
+        else if (e.Key == "ArrowLeft")
+        {
+            GoToPrevStory();
+        }
+        else if (e.Key == "Escape")
+        {
+            Close();
+        }
+    }
+
+    private void Close()
+    {
+        StopTimer();
+        IsOpen = false;
+        IsOpenChanged.InvokeAsync(false);
+    }
+
+    private string FormatTimeAgo(DateTime dateTime)
+    {
+        var span = DateTime.UtcNow - dateTime;
+        if (span.TotalMinutes < 1) return "Vừa xong";
+        if (span.TotalMinutes < 60) return $"{(int)span.TotalMinutes} phút trước";
+        if (span.TotalHours < 24) return $"{(int)span.TotalHours} giờ trước";
+        return $"{(int)span.TotalDays} ngày trước";
+    }
+
+    public void Dispose()
+    {
+        StopTimer();
+    }
+}

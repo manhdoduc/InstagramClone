@@ -1,0 +1,24 @@
+@inherits LayoutComponentBase
+@namespace InstagramClone.Web.Components.Layout
+
+<div class="min-h-screen bg-black text-white flex flex-col justify-between selection:bg-insta-blue selection:text-white">
+    <!-- Main Auth Content -->
+    <main class="flex-1 flex items-center justify-center p-4">
+        @Body
+    </main>
+
+    <!-- Footer -->
+    <footer class="py-6 text-center text-xs text-neutral-500 space-y-2 select-none">
+        <div class="flex flex-wrap justify-center gap-4 px-4">
+            <a href="#" class="hover:underline">Meta</a>
+            <a href="#" class="hover:underline">Giới thiệu</a>
+            <a href="#" class="hover:underline">Blog</a>
+            <a href="#" class="hover:underline">Việc làm</a>
+            <a href="#" class="hover:underline">Trợ giúp</a>
+            <a href="#" class="hover:underline">API</a>
+            <a href="#" class="hover:underline">Quyền riêng tư</a>
+            <a href="#" class="hover:underline">Điều khoản</a>
+        </div>
+        <p>© @DateTime.Now.Year Instagram Clone từ Antigravity .NET 8</p>
+    </footer>
+</div>

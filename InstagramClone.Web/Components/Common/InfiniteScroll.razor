@@ -1,0 +1,39 @@
+@namespace InstagramClone.Web.Components.Common
+@inject IJSRuntime JSRuntime
+
+<div @ref="_containerRef" class="w-full">
+    @ChildContent
+
+    @if (HasNextPage)
+    {
+        <div class="py-6 flex justify-center">
+            @if (IsLoading)
+            {
+                <LoadingSpinner Size="sm" Text="Đang tải thêm..." />
+            }
+            else
+            {
+                <button @onclick="TriggerLoadMore" class="px-4 py-2 bg-neutral-800 hover:bg-neutral-700 text-neutral-300 text-xs font-semibold rounded-lg transition-colors">
+                    Tải thêm
+                </button>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public bool HasNextPage { get; set; }
+    [Parameter] public bool IsLoading { get; set; }
+    [Parameter] public EventCallback OnLoadMore { get; set; }
+
+    private ElementReference _containerRef;
+
+    private async Task TriggerLoadMore()
+    {
+        if (!IsLoading && HasNextPage)
+        {
+            await OnLoadMore.InvokeAsync();
+        }
+    }
+}

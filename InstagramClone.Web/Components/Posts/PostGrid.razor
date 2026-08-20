@@ -1,0 +1,66 @@
+@namespace InstagramClone.Web.Components.Posts
+
+@if (Posts != null && Posts.Count > 0)
+{
+    <div class="grid grid-cols-3 gap-1 md:gap-4 select-none">
+        @foreach (var post in Posts)
+        {
+            var p = post;
+            var thumbUrl = GetThumbnailUrl(p);
+
+            <div @onclick="() => SelectPost(p.Id)" 
+                 class="relative aspect-square bg-neutral-900 overflow-hidden cursor-pointer group rounded-sm md:rounded-lg border border-neutral-800/40">
+                
+                @if (!string.IsNullOrWhiteSpace(thumbUrl))
+                {
+                    <img src="@thumbUrl" alt="Post thumbnail" class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                }
+                else
+                {
+                    <div class="w-full h-full p-4 flex items-center justify-center text-center bg-neutral-900 text-neutral-400 text-xs line-clamp-3">
+                        @p.Content
+                    </div>
+                }
+
+                <!-- Multi-image indicator icon top right -->
+                @if (p.MediaUrls != null && p.MediaUrls.Count > 1)
+                {
+                    <div class="absolute top-2 right-2 text-white drop-shadow-md">
+                        <i class="fa-solid fa-copy text-sm"></i>
+                    </div>
+                }
+
+                <!-- Hover Overlay with Likes & Comments Count -->
+                <div class="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center space-x-6 text-white font-bold text-sm">
+                    <div class="flex items-center space-x-2">
+                        <i class="fa-solid fa-heart"></i>
+                        <span>@p.LikeCount</span>
+                    </div>
+                    <div class="flex items-center space-x-2">
+                        <i class="fa-solid fa-comment"></i>
+                        <span>@p.CommentCount</span>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+}
+else
+{
+    <EmptyState Title="Chưa có bài viết nào" Description="Khi bạn chia sẻ ảnh hoặc bài viết, bài viết sẽ xuất hiện ở đây." IconClass="fa-regular fa-image" />
+}
+
+@code {
+    [Parameter] public List<PostDto> Posts { get; set; } = new();
+    [Parameter] public EventCallback<Guid> OnPostSelected { get; set; }
+
+    private string GetThumbnailUrl(PostDto p)
+    {
+        return p.MediaUrls != null && p.MediaUrls.Count > 0 ? p.MediaUrls[0] : string.Empty;
+    }
+
+    private async Task SelectPost(Guid postId)
+    {
+        await OnPostSelected.InvokeAsync(postId);
+    }
+}

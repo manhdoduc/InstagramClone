@@ -1,0 +1,67 @@
+@namespace InstagramClone.Web.Components.Common
+
+@if (IsOpen)
+{
+    <div class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in" @onclick="HandleBackdropClick">
+        <div class="relative w-full @MaxWidthClass bg-neutral-900 border border-neutral-800 rounded-xl shadow-2xl overflow-hidden text-white" 
+             @onclick:stopPropagation>
+            
+            @if (ShowHeader)
+            {
+                <div class="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
+                    <h3 class="text-sm font-semibold text-center flex-1">@Title</h3>
+                    <button @onclick="Close" class="text-neutral-400 hover:text-white transition-colors p-1">
+                        <i class="fa-solid fa-xmark text-lg"></i>
+                    </button>
+                </div>
+            }
+
+            <div class="p-4 max-h-[80vh] overflow-y-auto">
+                @ChildContent
+            </div>
+
+            @if (FooterContent != null)
+            {
+                <div class="px-4 py-3 border-t border-neutral-800 bg-neutral-900/50">
+                    @FooterContent
+                </div>
+            }
+        </div>
+    </div>
+}
+
+@code {
+    [Parameter] public bool IsOpen { get; set; }
+    [Parameter] public EventCallback<bool> IsOpenChanged { get; set; }
+    [Parameter] public string Title { get; set; } = string.Empty;
+    [Parameter] public bool ShowHeader { get; set; } = true;
+    [Parameter] public bool CloseOnBackdropClick { get; set; } = true;
+    [Parameter] public string MaxWidth { get; set; } = "md"; // sm, md, lg, xl, 2xl
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter] public RenderFragment? FooterContent { get; set; }
+
+    private string MaxWidthClass => MaxWidth.ToLower() switch
+    {
+        "sm" => "max-w-sm",
+        "md" => "max-w-md",
+        "lg" => "max-w-lg",
+        "xl" => "max-w-xl",
+        "2xl" => "max-w-2xl",
+        "4xl" => "max-w-4xl",
+        _ => "max-w-md"
+    };
+
+    private async Task Close()
+    {
+        IsOpen = false;
+        await IsOpenChanged.InvokeAsync(false);
+    }
+
+    private async Task HandleBackdropClick()
+    {
+        if (CloseOnBackdropClick)
+        {
+            await Close();
+        }
+    }
+}

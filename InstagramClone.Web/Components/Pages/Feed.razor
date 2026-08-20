@@ -1,0 +1,266 @@
+@page "/"
+@attribute [Authorize]
+@inject IPostService PostService
+@inject IUserService UserService
+@inject IFollowService FollowService
+@inject IStoryService StoryService
+@inject CustomAuthStateProvider AuthStateProvider
+@inject NavigationManager Navigation
+@inject IAuthService AuthService
+
+<PageTitle>Instagram</PageTitle>
+
+<div class="max-w-[935px] mx-auto px-4 py-6 flex justify-center lg:justify-between space-x-8">
+    <!-- Left / Center Column: Story Bar + Feed List -->
+    <div class="w-full max-w-[470px] space-y-6">
+        <!-- Story Bar (Real 24h Stories) -->
+        <StoryBar CurrentUserAvatar="@_currentUserProfile?.AvatarUrl"
+                  CurrentUserName="@(_currentUserProfile?.FullName ?? _currentUser.UserName)"
+                  CurrentUserId="@(Guid.TryParse(_currentUser.Id, out var uid) ? uid : Guid.Empty)"
+                  StoryFeeds="@_storyFeeds"
+                  OnCreateStoryRequested="() => _isCreateStoryOpen = true"
+                  OnUserStoryClicked="OpenStoryViewer" />
+
+        <!-- Post Feed List -->
+        @if (_isLoadingInitial)
+        {
+            <div class="space-y-6">
+                @for (int i = 0; i < 3; i++)
+                {
+                    <div class="bg-neutral-900/40 border border-neutral-800 rounded-xl p-4 space-y-4 animate-insta-pulse max-w-[470px] mx-auto">
+                        <div class="flex items-center space-x-3">
+                            <div class="w-10 h-10 rounded-full bg-neutral-800"></div>
+                            <div class="space-y-2 flex-1">
+                                <div class="h-3 bg-neutral-800 rounded w-1/3"></div>
+                                <div class="h-2 bg-neutral-800 rounded w-1/4"></div>
+                            </div>
+                        </div>
+                        <div class="w-full aspect-square bg-neutral-800 rounded-lg"></div>
+                    </div>
+                }
+            </div>
+        }
+        else if (_errorMessage != null)
+        {
+            <ErrorMessage Message="@_errorMessage" OnRetry="ReloadFeed" />
+        }
+        else if (_posts.Count > 0)
+        {
+            <InfiniteScroll HasNextPage="_hasNextPage" IsLoading="_isLoadingMore" OnLoadMore="LoadMorePosts">
+                <div class="space-y-6">
+                    @foreach (var post in _posts)
+                    {
+                        var p = post;
+                        <PostCard Post="p" 
+                                  IsOwner="string.Equals(p.AuthorId, _currentUser.Id, StringComparison.OrdinalIgnoreCase)" 
+                                  OnPostDeleted="HandlePostDeleted" 
+                                  OnCommentClicked="OpenPostDetailModal" />
+                    }
+                </div>
+            </InfiniteScroll>
+        }
+        else
+        {
+            <EmptyState Title="Chưa có bài viết nào trong Feed" 
+                        Description="Hãy tìm kiếm và theo dõi bạn bè để xem bài viết của họ xuất hiện ở đây!" 
+                        IconClass="fa-solid fa-newspaper" 
+                        ActionButtonText="Tìm kiếm bạn bè" 
+                        OnAction='() => Navigation.NavigateTo("search")' />
+        }
+    </div>
+
+    <!-- Right Column: Suggestions & Profile Summary (Desktop Only) -->
+    <div class="hidden lg:block w-[320px] space-y-6 flex-shrink-0 select-none sticky top-6 h-fit">
+        <!-- Current User Profile Box -->
+        @if (_currentUser.IsAuthenticated)
+        {
+            <div class="flex items-center justify-between">
+                <a href="@($"/profile/{_currentUser.Id}")" class="flex items-center space-x-3 group">
+                    <Avatar AvatarUrl="@_currentUserProfile?.AvatarUrl" Alt="@_currentUser.UserName" Size="md" />
+                    <div class="flex flex-col">
+                        <span class="text-xs font-semibold text-white group-hover:underline">@_currentUser.UserName</span>
+                        <span class="text-[11px] text-neutral-400">@_currentUser.Email</span>
+                    </div>
+                </a>
+        
+            </div>
+        }
+
+        <!-- Suggestions Header -->
+        <div class="flex items-center justify-between">
+            <span class="text-xs font-semibold text-neutral-400">Gợi ý cho bạn</span>
+            <a href="search" class="text-xs font-semibold text-white hover:text-neutral-300">Xem tất cả</a>
+        </div>
+
+        <!-- Suggested Users List -->
+        <div class="space-y-3">
+            @foreach (var user in _suggestedUsers)
+            {
+                var u = user;
+                <div class="flex items-center justify-between">
+                    <a href="@($"/profile/{u.UserId}")" class="flex items-center space-x-3 group">
+                        <Avatar AvatarUrl="@u.AvatarUrl" Alt="@u.FullName" Size="sm" />
+                        <div class="flex flex-col max-w-[150px]">
+                            <span class="text-xs font-semibold text-white truncate group-hover:underline">@u.FullName</span>
+                            <span class="text-[10px] text-neutral-500 truncate">Gợi ý cho bạn</span>
+                        </div>
+                    </a>
+                    <button @onclick="() => ToggleFollowUser(u)" class="text-xs font-semibold text-insta-blue hover:text-white transition-colors">
+                        @(u.IsFollowing ? "Đã theo dõi" : "Theo dõi")
+                    </button>
+                </div>
+            }
+        </div>
+
+        <!-- Footer Links -->
+        <div class="pt-4 text-[11px] text-neutral-500 space-y-3 leading-normal border-t border-neutral-800/60">
+            <p>Giới thiệu • Trợ giúp • Báo chí • API • Việc làm • Quyền riêng tư • Điều khoản</p>
+            <p>© 2026 INSTAGRAM CLONE TỪ ANTIGRAVITY</p>
+        </div>
+    </div>
+</div>
+
+<!-- Post Detail Modal -->
+@if (_selectedPostId != Guid.Empty)
+{
+    <PostDetailModal @bind-IsOpen="_isPostDetailOpen" PostId="_selectedPostId" />
+}
+
+<!-- Create Story Modal -->
+<CreateStoryModal @bind-IsOpen="_isCreateStoryOpen" OnStoryCreated="ReloadStories" />
+
+<!-- Story Viewer Modal -->
+<StoryViewerModal @bind-IsOpen="_isStoryViewerOpen" 
+                  AllUserFeeds="_storyFeeds" 
+                  InitialUserFeed="_selectedStoryFeed" 
+                  OnStoryDeleted="ReloadStories" 
+                  OnAddStoryRequested="() => _isCreateStoryOpen = true" />
+
+@code {
+    private CurrentUser _currentUser = new();
+    private UserProfileDto? _currentUserProfile;
+    private List<PostDto> _posts = new();
+    private List<UserSummaryDto> _suggestedUsers = new();
+    private List<UserStoryFeedDto> _storyFeeds = new();
+
+    private bool _isLoadingInitial = true;
+    private bool _isLoadingMore = false;
+    private bool _hasNextPage = false;
+    private DateTime? _nextCursor;
+    private string? _errorMessage;
+
+    private Guid _selectedPostId = Guid.Empty;
+    private bool _isPostDetailOpen = false;
+
+    private bool _isCreateStoryOpen = false;
+    private bool _isStoryViewerOpen = false;
+    private UserStoryFeedDto? _selectedStoryFeed;
+
+    protected override async Task OnInitializedAsync()
+    {
+        // Giữ rỗng để không chạy API call thiếu token trong thời điểm khởi tạo sơ bộ
+        await Task.CompletedTask;
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            _currentUser = await AuthStateProvider.GetCurrentUserAsync();
+            if (_currentUser.IsAuthenticated)
+            {
+                var profileResult = await UserService.GetUserProfileAsync(_currentUser.Id);
+                if (profileResult.IsSuccess)
+                {
+                    _currentUserProfile = profileResult.Data;
+                }
+            }
+            await ReloadFeed();
+            await ReloadStories();
+            await LoadSuggestions();
+            StateHasChanged();
+        }
+    }
+
+    private async Task ReloadStories()
+    {
+        var result = await StoryService.GetStoriesFeedAsync();
+        if (result.IsSuccess && result.Data != null)
+        {
+            _storyFeeds = result.Data;
+        }
+    }
+
+    private void OpenStoryViewer(UserStoryFeedDto feed)
+    {
+        _selectedStoryFeed = feed;
+        _isStoryViewerOpen = true;
+    }
+
+    private async Task ReloadFeed()
+    {
+        _isLoadingInitial = true;
+        _errorMessage = null;
+
+        var result = await PostService.GetFeedAsync(new PaginationRequest { PageSize = 10 });
+        if (result.IsSuccess && result.Data != null)
+        {
+            _posts = result.Data.Items;
+            _hasNextPage = result.Data.HasNextPage;
+            _nextCursor = result.Data.NextCursor;
+        }
+        else
+        {
+            _errorMessage = result.ErrorMessage ?? "Không thể tải bảng tin.";
+        }
+
+        _isLoadingInitial = false;
+    }
+
+    private async Task LoadMorePosts()
+    {
+        if (_isLoadingMore || !_hasNextPage) return;
+
+        _isLoadingMore = true;
+        var result = await PostService.GetFeedAsync(new PaginationRequest { PageSize = 10, Cursor = _nextCursor });
+        if (result.IsSuccess && result.Data != null)
+        {
+            _posts.AddRange(result.Data.Items);
+            _hasNextPage = result.Data.HasNextPage;
+            _nextCursor = result.Data.NextCursor;
+        }
+        _isLoadingMore = false;
+    }
+
+    private async Task LoadSuggestions()
+    {
+        var result = await UserService.SearchUsersAsync("a");
+        if (result.IsSuccess && result.Data != null)
+        {
+            _suggestedUsers = result.Data.Where(u => u.UserId != _currentUser.Id).Take(5).ToList();
+        }
+    }
+
+    private async Task ToggleFollowUser(UserSummaryDto user)
+    {
+        user.IsFollowing = !user.IsFollowing;
+        await FollowService.ToggleFollowAsync(user.UserId);
+    }
+
+    private void HandlePostDeleted(Guid postId)
+    {
+        _posts.RemoveAll(p => p.Id == postId);
+    }
+
+    private void OpenPostDetailModal(PostDto post)
+    {
+        _selectedPostId = post.Id;
+        _isPostDetailOpen = true;
+    }
+
+    private async Task HandleSwitchUser()
+    {
+        await AuthService.LogoutAsync();
+        Navigation.NavigateTo("login");
+    }
+}

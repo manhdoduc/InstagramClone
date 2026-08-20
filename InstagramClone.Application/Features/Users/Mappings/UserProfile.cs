@@ -15,6 +15,7 @@ public class UserProfile : Profile
         Guid? targetUserId = null;
 
         CreateMap<AppUser, UserProfileResponseDto>()
+            .ForMember(dest => dest.UserName, opt => opt.MapFrom(src => src.UserName ?? ""))
             .ForMember(dest => dest.AvatarUrl, opt => opt.MapFrom(src => src.AvatarUrl ?? ""))
             .ForMember(dest => dest.MyAccount, opt => opt.MapFrom(src => currentUserId == targetUserId))
             .ForMember(dest => dest.PostCount, opt => opt.MapFrom(src => src.Posts.Count()))
@@ -30,6 +31,7 @@ public class UserProfile : Profile
 
         CreateMap<AppUser, UserSummaryDto>()
             .ForMember(dest => dest.UserId, opt => opt.MapFrom(src => src.Id))
+            .ForMember(dest => dest.UserName, opt => opt.MapFrom(src => src.UserName ?? ""))
             .ForMember(dest => dest.AvatarUrl, opt => opt.MapFrom(src => src.AvatarUrl ?? ""))
             .ForMember(dest => dest.IsFollowing, opt => opt.MapFrom(src => currentUserId.HasValue && src.Followers.Any(f => f.FollowerId == currentUserId && f.Status == FollowStatus.Accepted)));
     }

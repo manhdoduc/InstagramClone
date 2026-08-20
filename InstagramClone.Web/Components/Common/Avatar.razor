@@ -1,0 +1,67 @@
+@namespace InstagramClone.Web.Components.Common
+
+<div class="relative inline-block flex-shrink-0 @(HasStory ? "insta-story-ring rounded-full" : "")">
+    @if (!string.IsNullOrWhiteSpace(AvatarUrl) && !_hasError)
+    {
+        <img src="@AvatarUrl" 
+             alt="@Alt" 
+             class="@SizeClass object-cover rounded-full bg-neutral-900 border border-neutral-800"
+             @onerror="HandleImageError" />
+    }
+    else
+    {
+        <div class="@SizeClass rounded-full bg-neutral-800 border border-neutral-700 flex items-center justify-center font-semibold text-neutral-300 select-none @TextSizeClass">
+            @Initials
+        </div>
+    }
+
+    @if (IsOnline)
+    {
+        <span class="absolute bottom-0 right-0 block h-3 w-3 rounded-full bg-green-500 ring-2 ring-black" title="Online"></span>
+    }
+</div>
+
+@code {
+    [Parameter] public string? AvatarUrl { get; set; }
+    [Parameter] public string Alt { get; set; } = "Avatar";
+    [Parameter] public string Size { get; set; } = "md"; // xs, sm, md, lg, xl, 2xl
+    [Parameter] public bool HasStory { get; set; } = false;
+    [Parameter] public bool IsOnline { get; set; } = false;
+
+    private bool _hasError = false;
+
+    private string Initials => AvatarHelper.GetInitials(Alt);
+
+    private string SizeClass => Size.ToLower() switch
+    {
+        "xs" => "w-6 h-6",
+        "sm" => "w-8 h-8",
+        "md" => "w-10 h-10",
+        "lg" => "w-14 h-14",
+        "xl" => "w-20 h-20",
+        "2xl" => "w-36 h-36",
+        _ => "w-10 h-10"
+    };
+
+    private string TextSizeClass => Size.ToLower() switch
+    {
+        "xs" => "text-[10px]",
+        "sm" => "text-xs",
+        "md" => "text-sm",
+        "lg" => "text-base",
+        "xl" => "text-xl",
+        "2xl" => "text-3xl",
+        _ => "text-sm"
+    };
+
+    private void HandleImageError()
+    {
+        _hasError = true;
+    }
+
+    protected override void OnParametersSet()
+    {
+        // Reset error state when parameters (like AvatarUrl) change
+        _hasError = false;
+    }
+}

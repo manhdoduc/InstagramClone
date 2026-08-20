@@ -1,0 +1,112 @@
+@namespace InstagramClone.Web.Components.Layout
+@inject NavigationManager Navigation
+@inject CustomAuthStateProvider AuthStateProvider
+@inject AppState AppState
+@inject IAuthService AuthService
+@implements IDisposable
+
+<aside class="hidden md:flex flex-col justify-between w-16 lg:w-64 h-screen sticky top-0 bg-black border-r border-neutral-800 p-3 lg:px-4 lg:py-6 select-none z-40">
+    <!-- Top Section: Logo & Nav Links -->
+    <div class="space-y-6">
+        <!-- Logo -->
+        <a href="/" class="flex items-center px-2 lg:px-3 text-white transition-opacity hover:opacity-80">
+            <i class="fa-brands fa-instagram text-2xl lg:hidden"></i>
+            <span class="hidden lg:block text-xl font-bold tracking-tight font-sans">Instagram</span>
+        </a>
+
+        <!-- Navigation Menu -->
+        <nav class="space-y-1">
+            <NavLink href="" Match="NavLinkMatch.All" class="flex items-center space-x-4 px-3 py-3 rounded-xl hover:bg-neutral-900 transition-colors group text-neutral-300 hover:text-white" ActiveClass="font-bold text-white bg-neutral-900">
+                <i class="fa-solid fa-house text-xl w-6 text-center group-hover:scale-105 transition-transform"></i>
+                <span class="hidden lg:inline text-sm">Trang chủ</span>
+            </NavLink>
+
+            <NavLink href="search" class="flex items-center space-x-4 px-3 py-3 rounded-xl hover:bg-neutral-900 transition-colors group text-neutral-300 hover:text-white" ActiveClass="font-bold text-white bg-neutral-900">
+                <i class="fa-solid fa-magnifying-glass text-xl w-6 text-center group-hover:scale-105 transition-transform"></i>
+                <span class="hidden lg:inline text-sm">Tìm kiếm</span>
+            </NavLink>
+
+            <NavLink href="chat" class="flex items-center space-x-4 px-3 py-3 rounded-xl hover:bg-neutral-900 transition-colors group text-neutral-300 hover:text-white relative" ActiveClass="font-bold text-white bg-neutral-900">
+                <i class="fa-regular fa-paper-plane text-xl w-6 text-center group-hover:scale-105 transition-transform"></i>
+                <span class="hidden lg:inline text-sm">Tin nhắn</span>
+            </NavLink>
+
+            <NavLink href="notifications" class="flex items-center space-x-4 px-3 py-3 rounded-xl hover:bg-neutral-900 transition-colors group text-neutral-300 hover:text-white relative" ActiveClass="font-bold text-white bg-neutral-900">
+                <div class="relative">
+                    <i class="fa-regular fa-heart text-xl w-6 text-center group-hover:scale-105 transition-transform"></i>
+                    @if (AppState.UnreadNotificationCount > 0)
+                    {
+                        <span class="absolute -top-1 -right-1 bg-insta-pink text-white text-[10px] font-bold h-4 w-4 rounded-full flex items-center justify-center border border-black">
+                            @(AppState.UnreadNotificationCount > 9 ? "9+" : AppState.UnreadNotificationCount)
+                        </span>
+                    }
+                </div>
+                <span class="hidden lg:inline text-sm">Thông báo</span>
+            </NavLink>
+
+            <button @onclick="OnCreatePostClicked" class="w-full flex items-center space-x-4 px-3 py-3 rounded-xl hover:bg-neutral-900 transition-colors group text-neutral-300 hover:text-white text-left">
+                <i class="fa-regular fa-square-plus text-xl w-6 text-center group-hover:scale-105 transition-transform"></i>
+                <span class="hidden lg:inline text-sm">Tạo bài viết</span>
+            </button>
+
+            <NavLink href="saved" class="flex items-center space-x-4 px-3 py-3 rounded-xl hover:bg-neutral-900 transition-colors group text-neutral-300 hover:text-white" ActiveClass="font-bold text-white bg-neutral-900">
+                <i class="fa-regular fa-bookmark text-xl w-6 text-center group-hover:scale-105 transition-transform"></i>
+                <span class="hidden lg:inline text-sm">Đã lưu</span>
+            </NavLink>
+
+            @if (_currentUser.IsAuthenticated)
+            {
+                <NavLink href="@($"/profile/{_currentUser.Id}")" class="flex items-center space-x-4 px-3 py-3 rounded-xl hover:bg-neutral-900 transition-colors group text-neutral-300 hover:text-white" ActiveClass="font-bold text-white bg-neutral-900">
+                 
+                    <span class="hidden lg:inline text-sm truncate">Trang cá nhân</span>
+                </NavLink>
+            }
+        </nav>
+    </div>
+
+    <!-- Bottom Section: Settings & Logout -->
+    <div class="space-y-1 pt-4 border-t border-neutral-800">
+        <NavLink href="settings" class="flex items-center space-x-4 px-3 py-3 rounded-xl hover:bg-neutral-900 transition-colors group text-neutral-300 hover:text-white" ActiveClass="font-bold text-white bg-neutral-900">
+            <i class="fa-solid fa-gear text-xl w-6 text-center group-hover:scale-105 transition-transform"></i>
+            <span class="hidden lg:inline text-sm">Cài đặt</span>
+        </NavLink>
+
+        <button @onclick="HandleLogout" class="w-full flex items-center space-x-4 px-3 py-3 rounded-xl hover:bg-neutral-900 transition-colors group text-neutral-300 hover:text-white text-left">
+            <i class="fa-solid fa-right-from-bracket text-xl w-6 text-center group-hover:scale-105 transition-transform text-red-500"></i>
+            <span class="hidden lg:inline text-sm text-red-500">Đăng xuất</span>
+        </button>
+    </div>
+</aside>
+
+@code {
+    [Parameter] public EventCallback OnCreatePost { get; set; }
+
+    private CurrentUser _currentUser = new();
+
+    protected override async Task OnInitializedAsync()
+    {
+        _currentUser = await AuthStateProvider.GetCurrentUserAsync();
+        AppState.OnStateChanged += HandleStateChanged;
+    }
+
+    private void HandleStateChanged()
+    {
+        InvokeAsync(StateHasChanged);
+    }
+
+    private async Task OnCreatePostClicked()
+    {
+        await OnCreatePost.InvokeAsync();
+    }
+
+    private async Task HandleLogout()
+    {
+        await AuthService.LogoutAsync();
+        Navigation.NavigateTo("login");
+    }
+
+    public void Dispose()
+    {
+        AppState.OnStateChanged -= HandleStateChanged;
+    }
+}

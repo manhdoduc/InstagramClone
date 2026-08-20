@@ -1,0 +1,37 @@
+@inject NavigationManager Navigation
+
+<CascadingAuthenticationState>
+    <Router AppAssembly="typeof(Program).Assembly">
+        <Found Context="routeData">
+            <AuthorizeRouteView RouteData="routeData" DefaultLayout="typeof(Layout.MainLayout)">
+                <NotAuthorized>
+                    @if (context.User.Identity?.IsAuthenticated != true)
+                    {
+                        <RedirectToLogin />
+                    }
+                    else
+                    {
+                        <div class="p-12 text-center text-red-400 space-y-2">
+                            <i class="fa-solid fa-lock text-3xl"></i>
+                            <p class="text-sm font-semibold">Bạn không có quyền truy cập trang này.</p>
+                        </div>
+                    }
+                </NotAuthorized>
+                <Authorizing>
+                    <LoadingSpinner FullPage="true" Text="Đang kiểm tra quyền truy cập..." />
+                </Authorizing>
+            </AuthorizeRouteView>
+            <FocusOnNavigate RouteData="routeData" Selector="h1" />
+        </Found>
+        <NotFound>
+            <PageTitle>Không tìm thấy trang</PageTitle>
+            <LayoutView Layout="typeof(Layout.MainLayout)">
+                <EmptyState Title="Trang không tồn tại" 
+                            Description="Liên kết bạn theo dõi có thể bị hỏng hoặc trang đã bị gỡ xuống." 
+                            IconClass="fa-solid fa-compass" 
+                            ActionButtonText="Trở về Trang chủ" 
+                            OnAction='() => Navigation.NavigateTo("")' />
+            </LayoutView>
+        </NotFound>
+    </Router>
+</CascadingAuthenticationState>

@@ -1,0 +1,101 @@
+@namespace InstagramClone.Web.Components.Chat
+@inject IChatService ChatService
+
+<div class="flex flex-col w-full @(IsSentByMe ? "items-end" : "items-start") mb-2.5 group select-none relative">
+    @if (!IsSentByMe)
+    {
+        <span class="text-[10px] text-neutral-400 font-semibold mb-0.5 ml-1">@Message.SenderName</span>
+    }
+
+    <div class="relative flex flex-col @(IsSentByMe ? "items-end" : "items-start") max-w-[75%] md:max-w-[65%]">
+
+        <!-- Reaction Picker (Floating popup above message bubble on hover) -->
+        <div class="absolute -top-7 @(IsSentByMe ? "right-0" : "left-0") z-30 opacity-0 group-hover:opacity-100 transition-all duration-150 pointer-events-none group-hover:pointer-events-auto flex items-center gap-1.5 bg-neutral-900/95 backdrop-blur-sm border border-neutral-700/80 px-2.5 py-0.5 rounded-full shadow-xl">
+            <button type="button" @onclick='() => React("❤️")' class="hover:scale-125 transition-transform text-xs p-0.5">❤️</button>
+            <button type="button" @onclick='() => React("😂")' class="hover:scale-125 transition-transform text-xs p-0.5">😂</button>
+            <button type="button" @onclick='() => React("🔥")' class="hover:scale-125 transition-transform text-xs p-0.5">🔥</button>
+            <button type="button" @onclick='() => React("👍")' class="hover:scale-125 transition-transform text-xs p-0.5">👍</button>
+            <button type="button" @onclick='() => React("😮")' class="hover:scale-125 transition-transform text-xs p-0.5">😮</button>
+            <button type="button" @onclick='() => React("😢")' class="hover:scale-125 transition-transform text-xs p-0.5">😢</button>
+        </div>
+
+        <!-- Message Row -->
+        <div class="flex items-center space-x-1.5">
+            @if (IsSentByMe)
+            {
+                <button @onclick="UnsendMessage"
+                        class="text-neutral-500 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity p-1"
+                        title="Thu hồi tin nhắn">
+                    <i class="fa-regular fa-trash-can text-xs"></i>
+                </button>
+            }
+
+            <!-- Message Bubble -->
+            <div class="relative px-4 py-2 rounded-2xl text-xs leading-relaxed space-y-1 shadow-sm @(IsSentByMe ? "bg-insta-blue text-white rounded-br-none" : "bg-neutral-800 text-neutral-100 rounded-bl-none")">
+
+                @if (Message.Type == MessageType.Image && !string.IsNullOrEmpty(Message.MediaUrl))
+                {
+                    <img src="@Message.MediaUrl"
+                         alt="Shared image"
+                         class="max-w-xs rounded-xl object-cover cursor-pointer hover:opacity-95 transition-opacity"
+                         @onclick="ToggleZoom" />
+                }
+
+                @if (!string.IsNullOrWhiteSpace(Message.Content) &&
+                    (Message.Type != MessageType.Image || Message.Content != "[Image]"))
+                {
+                    <p class="whitespace-pre-wrap break-words">@Message.Content</p>
+                }
+
+                <div class="text-[9px] text-right font-medium opacity-70">
+                    @Message.CreatedAt.ToString("HH:mm")
+                </div>
+            </div>
+        </div>
+
+        <!-- Message Reactions Row (Attached snug directly under bottom edge of message bubble) -->
+        @if (Message.Reactions != null && Message.Reactions.Count > 0)
+        {
+            <div class="flex items-center space-x-1 -mt-2.5 @(IsSentByMe ? "mr-2" : "ml-2") z-10 bg-neutral-900 border border-neutral-700/80 px-2 py-0.5 rounded-full shadow-md text-[11px] select-none">
+                @foreach (var reactionGroup in Message.Reactions.GroupBy(r => r.Emoji))
+                {
+                    <span>@reactionGroup.Key @(reactionGroup.Count() > 1 ? reactionGroup.Count().ToString() : "")</span>
+                }
+            </div>
+        }
+    </div>
+</div>
+
+@if (_isZoomed && Message.Type == MessageType.Image)
+{
+    <div class="fixed inset-0 z-[100] flex items-center justify-center bg-black/90 cursor-zoom-out" @onclick="ToggleZoom">
+        <img src="@Message.MediaUrl" alt="Zoomed image" class="max-w-[90vw] max-h-[90vh] object-contain" />
+    </div>
+}
+
+@code {
+    [Parameter] public MessageDto Message { get; set; } = new();
+    [Parameter] public bool IsSentByMe { get; set; } = false;
+    [Parameter] public EventCallback<Guid> OnUnsent { get; set; }
+
+    private bool _isZoomed = false;
+
+    private void ToggleZoom()
+    {
+        _isZoomed = !_isZoomed;
+    }
+
+    private async Task React(string emoji)
+    {
+        await ChatService.ReactToMessageAsync(Message.Id, emoji);
+    }
+
+    private async Task UnsendMessage()
+    {
+        var result = await ChatService.UnsendMessageAsync(Message.Id);
+        if (result.IsSuccess)
+        {
+            await OnUnsent.InvokeAsync(Message.Id);
+        }
+    }
+}

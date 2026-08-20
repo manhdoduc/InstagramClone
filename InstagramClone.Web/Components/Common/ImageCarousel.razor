@@ -1,0 +1,67 @@
+@namespace InstagramClone.Web.Components.Common
+
+@if (Images != null && Images.Count > 0)
+{
+    <div class="relative w-full aspect-square bg-black overflow-hidden group select-none">
+        <!-- Main Image -->
+        <img src="@Images[_currentIndex]" 
+             alt="Post media" 
+             class="w-full h-full object-cover transition-all duration-300" />
+
+        @if (Images.Count > 1)
+        {
+            <!-- Previous Button -->
+            @if (_currentIndex > 0)
+            {
+                <button @onclick="PrevImage" 
+                        class="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center transition-all opacity-0 group-hover:opacity-100">
+                    <i class="fa-solid fa-chevron-left text-xs"></i>
+                </button>
+            }
+
+            <!-- Next Button -->
+            @if (_currentIndex < Images.Count - 1)
+            {
+                <button @onclick="NextImage" 
+                        class="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 rounded-full bg-black/60 hover:bg-black/80 text-white flex items-center justify-center transition-all opacity-0 group-hover:opacity-100">
+                    <i class="fa-solid fa-chevron-right text-xs"></i>
+                </button>
+            }
+
+            <!-- Dots Indicator -->
+            <div class="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center space-x-1.5 bg-black/40 backdrop-blur-sm px-2 py-1 rounded-full">
+                @for (int i = 0; i < Images.Count; i++)
+                {
+                    var index = i;
+                    <button @onclick="() => GoToImage(index)" 
+                            class="w-1.5 h-1.5 rounded-full transition-all @(index == _currentIndex ? "bg-insta-blue w-2.5" : "bg-neutral-500 hover:bg-neutral-300")">
+                    </button>
+                }
+            </div>
+        }
+    </div>
+}
+
+@code {
+    [Parameter] public List<string> Images { get; set; } = new();
+
+    private int _currentIndex = 0;
+
+    private void PrevImage()
+    {
+        if (_currentIndex > 0)
+            _currentIndex--;
+    }
+
+    private void NextImage()
+    {
+        if (_currentIndex < Images.Count - 1)
+            _currentIndex++;
+    }
+
+    private void GoToImage(int index)
+    {
+        if (index >= 0 && index < Images.Count)
+            _currentIndex = index;
+    }
+}
