@@ -1,4 +1,5 @@
 using FluentAssertions;
+using InstagramClone.Application.Features.Notifications.Services;
 using InstagramClone.Common.Constants;
 using InstagramClone.Domain.Entities;
 using InstagramClone.Domain.Enums;
@@ -34,7 +35,7 @@ public partial class FollowServicesTests
         result.Value.Should().Be(FollowCodes.Followed);
 
         _mockUserRepository.Verify(r => r.AddFollow(It.Is<Follow>(f => f.Status == FollowStatus.Accepted)), Times.Once);
-        _mockNotificationServices.Verify(n => n.CreateAndSendNotificationAsync(followeeId, followerId, NotificationType.Follow, "started following you.", null), Times.Once);
+        _mockBackgroundJobService.Verify(b => b.Enqueue(It.IsAny<System.Linq.Expressions.Expression<Func<INotificationServices, Task>>>()), Times.Once);
         _mockCacheService.Verify(c => c.BumpScopeVersionAsync(It.Is<string>(s => s.Contains(followeeId.ToString()))), Times.AtLeastOnce);
     }
 
@@ -61,7 +62,7 @@ public partial class FollowServicesTests
         result.Value.Should().Be(FollowCodes.FollowRequestSent);
 
         _mockUserRepository.Verify(r => r.AddFollow(It.Is<Follow>(f => f.Status == FollowStatus.Pending)), Times.Once);
-        _mockNotificationServices.Verify(n => n.CreateAndSendNotificationAsync(followeeId, followerId, NotificationType.FollowRequest, "requested to follow you.", null), Times.Once);
+        _mockBackgroundJobService.Verify(b => b.Enqueue(It.IsAny<System.Linq.Expressions.Expression<Func<INotificationServices, Task>>>()), Times.Once);
     }
 
     [Fact]
@@ -89,7 +90,7 @@ public partial class FollowServicesTests
 
         _mockUserRepository.Verify(r => r.UpdateFollow(existingFollow), Times.Once);
         // Ensure no new notification is sent for unfollowing
-        _mockNotificationServices.Verify(n => n.CreateAndSendNotificationAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<NotificationType>(), It.IsAny<string>(), null), Times.Never);
+        _mockBackgroundJobService.Verify(b => b.Enqueue(It.IsAny<System.Linq.Expressions.Expression<Func<INotificationServices, Task>>>()), Times.Never);
     }
 
     [Fact]

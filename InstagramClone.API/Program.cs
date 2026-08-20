@@ -3,6 +3,8 @@ using InstagramClone.API.Extensions;
 using InstagramClone.API.Middlewares;
 using InstagramClone.Infrastructure.Persistence;
 using InstagramClone.Infrastructure.SignalR;
+using InstagramClone.Infrastructure.BackgroundJobs;
+using Hangfire;
 using Microsoft.AspNetCore.Diagnostics.HealthChecks;
 using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.EntityFrameworkCore;
@@ -99,6 +101,13 @@ try
     app.UseAuthentication();
 
     app.UseAuthorization();
+
+    // Hangfire Dashboard to monitor background jobs
+    app.UseHangfireDashboard("/hangfire", new DashboardOptions
+    {
+        DashboardTitle = "InstagramClone Background Jobs",
+        Authorization = new[] { new HangfireDashboardAuthorizationFilter() }
+    });
 
     app.UseRateLimiter();
 

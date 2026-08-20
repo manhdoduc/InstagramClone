@@ -1,4 +1,5 @@
 using FluentAssertions;
+using InstagramClone.Application.Features.Notifications.Services;
 using InstagramClone.Common.Constants;
 using InstagramClone.Domain.Entities;
 using InstagramClone.Domain.Enums;
@@ -35,8 +36,7 @@ public partial class FollowServicesTests
         _mockUnitOfWork.Verify(u => u.SaveChangesAsync(), Times.Once);
         
         // Ensure NO notification is sent for decline
-        _mockNotificationServices.Verify(n => n.CreateAndSendNotificationAsync(
-            It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<NotificationType>(), It.IsAny<string>(), null), Times.Never);
+        _mockBackgroundJobService.Verify(b => b.Enqueue(It.IsAny<System.Linq.Expressions.Expression<Func<INotificationServices, Task>>>()), Times.Never);
             
         _mockCacheService.Verify(c => c.BumpScopeVersionAsync(It.Is<string>(s => s.Contains(userId.ToString()))), Times.Once);
         _mockCacheService.Verify(c => c.BumpScopeVersionAsync(It.Is<string>(s => s.Contains(followerId.ToString()))), Times.Once);

@@ -20,7 +20,7 @@ namespace InstagramClone.Application.Features.Follows.Services
         IUnitOfWork unitOfWork,
         ICurrentUserService currentUser,
         ICacheService cache,
-        INotificationServices notificationServices
+        IBackgroundJobService backgroundJobService
         ) : IFollowService
     {
         public async Task<Result<string>> SendFollowRequestAsync(string followeeIdStr)
@@ -86,7 +86,8 @@ namespace InstagramClone.Application.Features.Follows.Services
                     string notifyMsg = notifyType == NotificationType.FollowRequest
                         ? "requested to follow you."
                         : "started following you.";
-                    await notificationServices.CreateAndSendNotificationAsync(followeeGuid, followerGuid, notifyType, notifyMsg);
+                    backgroundJobService.Enqueue<INotificationServices>(svc =>
+                        svc.CreateAndSendNotificationAsync(followeeGuid, followerGuid, notifyType, notifyMsg, null));
                 }
             }
             return Result<string>.Success(message);
@@ -114,7 +115,8 @@ namespace InstagramClone.Application.Features.Follows.Services
                 await cache.BumpScopeVersionAsync($"user:profile:rev:{userId}");
                 await cache.BumpScopeVersionAsync($"user:profile:rev:{followerId}");
 
-                await notificationServices.CreateAndSendNotificationAsync(followerId, userId, NotificationType.FollowAccept, "accepted your follow request.");
+                backgroundJobService.Enqueue<INotificationServices>(svc =>
+                    svc.CreateAndSendNotificationAsync(followerId, userId, NotificationType.FollowAccept, "accepted your follow request.", null));
             }
             return saved ? Result<bool>.Success(true) : Result<bool>.Failure(new Error(ErrorCodes.Failure, "Failed to accept follow request."));
         }

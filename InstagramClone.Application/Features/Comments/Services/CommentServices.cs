@@ -21,7 +21,7 @@ public class CommentServices(
     IUnitOfWork unitOfWork,
     ICurrentUserService currentUser,
     ICacheService cache,
-    INotificationServices notificationServices
+    IBackgroundJobService backgroundJobService
     ) : ICommentServices
 {
     public async Task<Result<ResponseCommentDto>> AddCommentAsync(Guid postId, CreateCommentDto commentDto)
@@ -41,8 +41,9 @@ public class CommentServices(
         if (user == null)
             return Result<ResponseCommentDto>.Failure(new Error(ErrorCodes.NotFound, "User not found"));
 
-        // Trigger notification to post author
-        await notificationServices.CreateAndSendNotificationAsync(post.UserId, userId, NotificationType.Comment, $"commented on your post: \"{commentDto.Content}\"", postId);
+        // Trigger notification to post author via background job
+        backgroundJobService.Enqueue<INotificationServices>(svc =>
+            svc.CreateAndSendNotificationAsync(post.UserId, userId, NotificationType.Comment, $"commented on your post: \"{commentDto.Content}\"", postId));
 
         return Result<ResponseCommentDto>.Success(new ResponseCommentDto
         {

@@ -1,4 +1,5 @@
 using FluentAssertions;
+using InstagramClone.Application.Features.Notifications.Services;
 using InstagramClone.Common.Constants;
 using InstagramClone.Domain.Entities;
 using InstagramClone.Domain.Enums;
@@ -34,8 +35,7 @@ public partial class FollowServicesTests
         _mockUserRepository.Verify(r => r.UpdateFollow(request), Times.Once);
         _mockUnitOfWork.Verify(u => u.SaveChangesAsync(), Times.Once);
         
-        _mockNotificationServices.Verify(n => n.CreateAndSendNotificationAsync(
-            followerId, userId, NotificationType.FollowAccept, "accepted your follow request.", null), Times.Once);
+        _mockBackgroundJobService.Verify(b => b.Enqueue(It.IsAny<System.Linq.Expressions.Expression<Func<INotificationServices, Task>>>()), Times.Once);
             
         _mockCacheService.Verify(c => c.BumpScopeVersionAsync(It.Is<string>(s => s.Contains(userId.ToString()))), Times.Once);
         _mockCacheService.Verify(c => c.BumpScopeVersionAsync(It.Is<string>(s => s.Contains(followerId.ToString()))), Times.Once);

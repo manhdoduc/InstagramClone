@@ -27,7 +27,7 @@ public partial class PostServicesTests
     private readonly Mock<ICurrentUserService> _mockCurrentUserService;
     private readonly Mock<IStorageServices> _mockStorageServices;
     private readonly Mock<ICacheService> _mockCacheService;
-    private readonly Mock<INotificationServices> _mockNotificationServices;
+    private readonly Mock<IBackgroundJobService> _mockBackgroundJobService;
     private readonly Mock<IOptions<MediaSettings>> _mockMediaSettingsOptions;
     
     private readonly PostServices _postServices;
@@ -40,7 +40,7 @@ public partial class PostServicesTests
         _mockCurrentUserService = new Mock<ICurrentUserService>();
         _mockStorageServices = new Mock<IStorageServices>();
         _mockCacheService = new Mock<ICacheService>();
-        _mockNotificationServices = new Mock<INotificationServices>();
+        _mockBackgroundJobService = new Mock<IBackgroundJobService>();
         _mockMediaSettingsOptions = new Mock<IOptions<MediaSettings>>();
 
         var mediaSettings = new MediaSettings
@@ -57,7 +57,7 @@ public partial class PostServicesTests
             _mockCurrentUserService.Object,
             _mockStorageServices.Object,
             _mockCacheService.Object,
-            _mockNotificationServices.Object,
+            _mockBackgroundJobService.Object,
             _mockMediaSettingsOptions.Object
         );
     }

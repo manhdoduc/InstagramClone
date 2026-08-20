@@ -16,6 +16,9 @@ using InstagramClone.Infrastructure.Identity;
 using InstagramClone.Infrastructure.Persistence;
 using InstagramClone.Infrastructure.Repositories;
 using InstagramClone.Infrastructure.Services;
+using InstagramClone.Infrastructure.BackgroundJobs;
+using Hangfire;
+using Hangfire.SqlServer;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.RateLimiting;
@@ -62,6 +65,7 @@ public static class ServiceCollectionExtensions
         services.AddScoped<ICurrentUserService, CurrentUserServices>();
         services.AddScoped<IChatNotificationService, ChatNotificationService>();
         services.AddScoped<ISocialNotificationService, SocialNotificationService>();
+        services.AddScoped<IBackgroundJobService, HangfireBackgroundJobService>();
         services.AddSingleton<ICacheService, MemoryCacheService>();
         services.AddScoped<IUnitOfWork, UnitOfWork>();
 
@@ -85,6 +89,27 @@ public static class ServiceCollectionExtensions
             });
             options.UseQueryTrackingBehavior(QueryTrackingBehavior.NoTracking);
         }, poolSize: 128);
+
+        // Hangfire Background Job Services
+        services.AddHangfire(hangfireConfig => hangfireConfig
+            .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
+            .UseSimpleAssemblyNameTypeSerializer()
+            .UseRecommendedSerializerSettings()
+            .UseSqlServerStorage(connectionString, new SqlServerStorageOptions
+            {
+                CommandBatchMaxTimeout = TimeSpan.FromMinutes(5),
+                SlidingInvisibilityTimeout = TimeSpan.FromMinutes(5),
+                QueuePollInterval = TimeSpan.FromSeconds(5),
+                UseRecommendedIsolationLevel = true,
+                DisableGlobalLocks = true,
+                PrepareSchemaIfNecessary = true
+            }));
+
+        services.AddHangfireServer(options =>
+        {
+            options.WorkerCount = Math.Max(Environment.ProcessorCount * 2, 4);
+            options.Queues = new[] { "default", "notifications" };
+        });
 
         return services;
     }

@@ -1,5 +1,6 @@
 using FluentAssertions;
 using InstagramClone.Common.Constants;
+using InstagramClone.Application.Features.Notifications.Services;
 using Moq;
 using Xunit;
 using System;
@@ -30,7 +31,7 @@ public partial class PostServicesTests
         result.IsSuccess.Should().BeTrue();
         _mockPostRepository.Verify(r => r.AddLike(It.IsAny<InstagramClone.Domain.Entities.Like>()), Times.Once);
         _mockUnitOfWork.Verify(u => u.SaveChangesAsync(), Times.Once);
-        _mockNotificationServices.Verify(n => n.CreateAndSendNotificationAsync(postOwnerId, userId, InstagramClone.Domain.Enums.NotificationType.LikePost, "liked your post.", postId), Times.Once);
+        _mockBackgroundJobService.Verify(b => b.Enqueue(It.IsAny<System.Linq.Expressions.Expression<Func<INotificationServices, Task>>>()), Times.Once);
     }
 
     [Fact]
@@ -57,7 +58,7 @@ public partial class PostServicesTests
         existingLike.IsDeleted.Should().BeTrue(); // Should have been toggled
         _mockPostRepository.Verify(r => r.UpdateLike(existingLike), Times.Once);
         _mockUnitOfWork.Verify(u => u.SaveChangesAsync(), Times.Once);
-        _mockNotificationServices.Verify(n => n.CreateAndSendNotificationAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<InstagramClone.Domain.Enums.NotificationType>(), It.IsAny<string>(), It.IsAny<Guid?>()), Times.Never);
+        _mockBackgroundJobService.Verify(b => b.Enqueue(It.IsAny<System.Linq.Expressions.Expression<Func<INotificationServices, Task>>>()), Times.Never);
     }
 
     [Fact]

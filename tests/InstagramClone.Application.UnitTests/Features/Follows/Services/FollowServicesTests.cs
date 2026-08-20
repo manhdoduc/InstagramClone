@@ -16,7 +16,7 @@ public partial class FollowServicesTests
     private readonly Mock<IUserRepository> _mockUserRepository;
     private readonly Mock<ICurrentUserService> _mockCurrentUserService;
     private readonly Mock<ICacheService> _mockCacheService;
-    private readonly Mock<INotificationServices> _mockNotificationServices;
+    private readonly Mock<IBackgroundJobService> _mockBackgroundJobService;
 
     private readonly FollowServices _followServices;
 
@@ -26,7 +26,7 @@ public partial class FollowServicesTests
         _mockUserRepository = new Mock<IUserRepository>();
         _mockCurrentUserService = new Mock<ICurrentUserService>();
         _mockCacheService = new Mock<ICacheService>();
-        _mockNotificationServices = new Mock<INotificationServices>();
+        _mockBackgroundJobService = new Mock<IBackgroundJobService>();
 
         _mockUnitOfWork.Setup(u => u.Users).Returns(_mockUserRepository.Object);
 
@@ -34,7 +34,7 @@ public partial class FollowServicesTests
             _mockUnitOfWork.Object,
             _mockCurrentUserService.Object,
             _mockCacheService.Object,
-            _mockNotificationServices.Object
+            _mockBackgroundJobService.Object
         );
     }
 }

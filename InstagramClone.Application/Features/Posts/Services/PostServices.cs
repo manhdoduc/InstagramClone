@@ -22,7 +22,7 @@ public class PostServices(
     ICurrentUserService currentUser,
     IStorageServices storageServices,
     ICacheService cache,
-    INotificationServices notificationServices,
+    IBackgroundJobService backgroundJobService,
     IOptions<MediaSettings> mediaSettingsOptions
     ) : IPostServices
 {
@@ -349,7 +349,8 @@ public class PostServices(
             await unitOfWork.SaveChangesAsync();
             if (isNowLiked)
             {
-                await notificationServices.CreateAndSendNotificationAsync(post.UserId, userId, NotificationType.LikePost, "liked your post.", postId);
+                backgroundJobService.Enqueue<INotificationServices>(svc =>
+                    svc.CreateAndSendNotificationAsync(post.UserId, userId, NotificationType.LikePost, "liked your post.", postId));
             }
             return Result.Success();
         }
