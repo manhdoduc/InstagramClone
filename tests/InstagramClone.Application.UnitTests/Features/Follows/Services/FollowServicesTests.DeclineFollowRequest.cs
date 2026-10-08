@@ -37,9 +37,6 @@ public partial class FollowServicesTests
         
         // Ensure NO notification is sent for decline
         _mockBackgroundJobService.Verify(b => b.Enqueue(It.IsAny<System.Linq.Expressions.Expression<Func<INotificationServices, Task>>>()), Times.Never);
-            
-        _mockCacheService.Verify(c => c.BumpScopeVersionAsync(It.Is<string>(s => s.Contains(userId.ToString()))), Times.Once);
-        _mockCacheService.Verify(c => c.BumpScopeVersionAsync(It.Is<string>(s => s.Contains(followerId.ToString()))), Times.Once);
     }
 
     [Fact]

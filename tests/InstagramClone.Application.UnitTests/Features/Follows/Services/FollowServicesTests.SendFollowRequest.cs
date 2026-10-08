@@ -36,7 +36,6 @@ public partial class FollowServicesTests
 
         _mockUserRepository.Verify(r => r.AddFollow(It.Is<Follow>(f => f.Status == FollowStatus.Accepted)), Times.Once);
         _mockBackgroundJobService.Verify(b => b.Enqueue(It.IsAny<System.Linq.Expressions.Expression<Func<INotificationServices, Task>>>()), Times.Once);
-        _mockCacheService.Verify(c => c.BumpScopeVersionAsync(It.Is<string>(s => s.Contains(followeeId.ToString()))), Times.AtLeastOnce);
     }
 
     [Fact]

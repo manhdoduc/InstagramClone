@@ -193,10 +193,7 @@ public static class ServiceCollectionExtensions
 
     public static IServiceCollection AddSwaggerAndApiServices(this IServiceCollection services, IConfiguration configuration)
     {
-        services.AddControllers(options =>
-        {
-            options.Filters.Add<InstagramClone.API.Filters.OwnershipAuthorizationFilter>();
-        });
+        services.AddControllers();
         services.AddEndpointsApiExplorer();
         services.AddProblemDetails();
         services.AddSwaggerGen(options =>
@@ -368,21 +365,7 @@ public static class ServiceCollectionExtensions
                 name: "database",
                 failureStatus: Microsoft.Extensions.Diagnostics.HealthChecks.HealthStatus.Unhealthy,
                 tags: ["db", "sql"]
-            )
-            .AddProcessAllocatedMemoryHealthCheck(maximumMegabytesAllocated: 1024, name: "Process Memory", tags: ["system"])
-            .AddDiskStorageHealthCheck(setup => 
-            {
-                setup.AddDrive("C:\\", minimumFreeMegabytes: 1024); 
-            }, name: "Disk Storage", tags: ["system"])
-            .AddUrlGroup(new Uri("http://seq_logs:5341/health"), name: "Seq Logging Server", tags: ["infrastructure", "logging"]);
-
-        services.AddHealthChecksUI(setup =>
-        {
-            setup.SetEvaluationTimeInSeconds(10);
-            setup.MaximumHistoryEntriesPerEndpoint(50);
-            setup.AddHealthCheckEndpoint("Instagram Api", "http://localhost:8080/healthz");
-        })
-        .AddInMemoryStorage();
+            );
 
         return services;
     }

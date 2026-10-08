@@ -1,5 +1,4 @@
 using InstagramClone.Application.Interfaces.BackgroundJobs;
-using InstagramClone.Application.Interfaces.Caching;
 using InstagramClone.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -10,7 +9,6 @@ namespace InstagramClone.Infrastructure.BackgroundJobs.Jobs;
 
 public class StoryExpirationJob(
     AppDbContext context,
-    ICacheService cache,
     ILogger<StoryExpirationJob> logger) : IStoryExpirationJob
 {
     public async Task ExpireStoryAsync(Guid storyId)
@@ -28,10 +26,6 @@ public class StoryExpirationJob(
         // 2. Đánh dấu hết hạn (Soft-delete)
         story.Expire();
         await context.SaveChangesAsync();
-
-        // 3. Làm mới cache
-        await cache.BumpScopeVersionAsync($"stories:user:{story.UserId}");
-        await cache.BumpScopeVersionAsync("stories:feed:version");
 
         logger.LogInformation("Story {StoryId} of user {UserId} automatically expired after 24h.", storyId, story.UserId);
     }

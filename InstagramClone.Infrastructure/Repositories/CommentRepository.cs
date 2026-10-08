@@ -1,15 +1,16 @@
-using AutoMapper;
-using AutoMapper.QueryableExtensions;
-using InstagramClone.Application.Features.Posts.DTOs;
 using InstagramClone.Application.Interfaces.Repositories;
 using InstagramClone.Domain.Entities;
 using InstagramClone.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Linq.Expressions;
+using System.Threading.Tasks;
 
 namespace InstagramClone.Infrastructure.Repositories;
 
-public class CommentRepository(AppDbContext context, IMapper mapper) : ICommentRepository
+public class CommentRepository(AppDbContext context) : ICommentRepository
 {
     public async Task<Comment?> GetByIdAsync(Guid id)
     {
@@ -46,9 +47,11 @@ public class CommentRepository(AppDbContext context, IMapper mapper) : ICommentR
             .FirstAsync();
     }
 
-    public async Task<List<ResponseCommentDto>> GetCommentsByPostIdAsync(Guid postId, DateTime? cursor, int pageSize, Guid currentUserId)
+    public async Task<List<Comment>> GetCommentsByPostIdAsync(Guid postId, DateTime? cursor, int pageSize)
     {
-        var query = context.Comments.AsNoTracking()
+        IQueryable<Comment> query = context.Comments.AsNoTracking()
+            .Include(c => c.User)
+            .Include(c => c.Likes)
             .Where(c => c.PostId == postId);
 
         if (cursor.HasValue)
@@ -59,7 +62,6 @@ public class CommentRepository(AppDbContext context, IMapper mapper) : ICommentR
         return await query
             .OrderByDescending(c => c.CreatedAt)
             .Take(pageSize + 1)
-            .ProjectTo<ResponseCommentDto>(mapper.ConfigurationProvider, new { currentUserId })
             .ToListAsync();
     }
 

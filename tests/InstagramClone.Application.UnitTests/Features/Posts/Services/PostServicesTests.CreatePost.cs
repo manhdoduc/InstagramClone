@@ -42,7 +42,6 @@ public partial class PostServicesTests
 
         _mockPostRepository.Verify(r => r.Add(It.IsAny<InstagramClone.Domain.Entities.Post>()), Times.Once);
         _mockUnitOfWork.Verify(u => u.SaveChangesAsync(), Times.Once);
-        _mockCacheService.Verify(c => c.BumpScopeVersionAsync(It.IsAny<string>()), Times.AtLeastOnce);
     }
 
     [Fact]

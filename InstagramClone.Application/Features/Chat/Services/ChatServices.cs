@@ -1,6 +1,7 @@
 using InstagramClone.Application.Common;
 using InstagramClone.Application.Common.DTOs;
 using InstagramClone.Application.Features.Chat.DTOs;
+using InstagramClone.Application.Features.Chat.Mappings;
 using InstagramClone.Application.Interfaces.Caching;
 using InstagramClone.Application.Interfaces.Chats;
 using InstagramClone.Application.Interfaces.Data;
@@ -167,8 +168,9 @@ namespace InstagramClone.Application.Features.Chat.Services
                     return Result<CursorPagedResponse<MessageDto>>.Failure(new Error(ErrorCodes.Failure, "user not a member"));
 
                 var messages = await unitOfWork.Chats.GetRoomMessagesAsync(chatRoomId, messagePagi.Cursor, messagePagi.PageSize);
+                var messageDtos = messages.ToMessageDtos();
 
-                var mess = PaginationHelper.ToCursorPaged(messages, messagePagi.PageSize, m => m.CreatedAt);
+                var mess = PaginationHelper.ToCursorPaged(messageDtos, messagePagi.PageSize, m => m.CreatedAt);
                
                 if(mess.NextCursor == null)
                 {
@@ -193,7 +195,8 @@ namespace InstagramClone.Application.Features.Chat.Services
                 cacheKey,
                 factory: async () =>
                 {
-                    return await unitOfWork.Chats.GetUserChatRoomsAsync(currentUserId);
+                    var chatRooms = await unitOfWork.Chats.GetUserChatRoomsAsync(currentUserId);
+                    return chatRooms.ToChatRoomDtos(currentUserId);
                 },
                 TimeSpan.FromSeconds(30) // Cache ngắn vì Inbox cần cập nhật nhanh
             );

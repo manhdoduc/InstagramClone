@@ -1,7 +1,3 @@
-using AutoMapper;
-using AutoMapper.QueryableExtensions;
-using InstagramClone.Application.Features.Posts.DTOs;
-using InstagramClone.Application.Features.Users.DTOs;
 using InstagramClone.Application.Interfaces.Repositories;
 using InstagramClone.Domain.Entities;
 using InstagramClone.Infrastructure.Persistence;
@@ -14,7 +10,7 @@ using System.Threading.Tasks;
 
 namespace InstagramClone.Infrastructure.Repositories;
 
-public class PostRepository(AppDbContext context, IMapper mapper) : IPostRepository
+public class PostRepository(AppDbContext context) : IPostRepository
 {
     public async Task<Post?> GetByIdAsync(Guid id)
     {
@@ -43,17 +39,25 @@ public class PostRepository(AppDbContext context, IMapper mapper) : IPostReposit
         return await context.Posts.AnyAsync(predicate);
     }
 
-    public async Task<ResponsePostDto?> GetPostDtoByIdAsync(Guid id, Guid currentUserId)
+    public async Task<Post?> GetPostDetailsByIdAsync(Guid id)
     {
         return await context.Posts.AsNoTracking()
-            .Where(p => p.Id == id)
-            .ProjectTo<ResponsePostDto>(mapper.ConfigurationProvider, new { currentUserId })
-            .FirstOrDefaultAsync();
+            .Include(p => p.User)
+            .Include(p => p.MediaItems)
+            .Include(p => p.Likes)
+            .Include(p => p.Comments)
+            .Include(p => p.SavedPosts)
+            .FirstOrDefaultAsync(p => p.Id == id);
     }
 
-    public async Task<List<ResponsePostDto>> GetFeedsAsync(List<Guid> followingIds, DateTime? cursor, int pageSize, Guid currentUserId)
+    public async Task<List<Post>> GetFeedsAsync(List<Guid> followingIds, DateTime? cursor, int pageSize)
     {
-        var query = context.Posts.AsNoTracking()
+        IQueryable<Post> query = context.Posts.AsNoTracking()
+            .Include(p => p.User)
+            .Include(p => p.MediaItems)
+            .Include(p => p.Likes)
+            .Include(p => p.Comments)
+            .Include(p => p.SavedPosts)
             .Where(p => followingIds.Contains(p.UserId));
 
         if (cursor.HasValue)
@@ -64,15 +68,19 @@ public class PostRepository(AppDbContext context, IMapper mapper) : IPostReposit
         return await query
             .OrderByDescending(p => p.CreatedAt)
             .Take(pageSize + 1)
-            .ProjectTo<ResponsePostDto>(mapper.ConfigurationProvider, new { currentUserId })
             .ToListAsync();
     }
 
-    public async Task<List<ResponsePostDto>> GetSavedPostsAsync(Guid userId, DateTime? cursor, int pageSize)
+    public async Task<List<Post>> GetSavedPostsAsync(Guid userId, DateTime? cursor, int pageSize)
     {
-        var query = context.SavedPosts.AsNoTracking()
+        IQueryable<Post> query = context.SavedPosts.AsNoTracking()
             .Where(s => s.UserId == userId && !s.IsDeleted)
-            .Select(s => s.Post);
+            .Select(s => s.Post)
+            .Include(p => p.User)
+            .Include(p => p.MediaItems)
+            .Include(p => p.Likes)
+            .Include(p => p.Comments)
+            .Include(p => p.SavedPosts);
 
         if (cursor.HasValue)
         {
@@ -82,14 +90,18 @@ public class PostRepository(AppDbContext context, IMapper mapper) : IPostReposit
         return await query
             .OrderByDescending(p => p.CreatedAt)
             .Take(pageSize + 1)
-            .ProjectTo<ResponsePostDto>(mapper.ConfigurationProvider, new { currentUserId = userId })
             .ToListAsync();
     }
 
-    public async Task<List<ResponsePostDto>> GetSearchPostsAsync(string content, DateTime? cursor, int pageSize, Guid currentUserId)
+    public async Task<List<Post>> GetSearchPostsAsync(string content, DateTime? cursor, int pageSize)
     {
         content = content.Trim().ToLower();
-        var query = context.Posts.AsNoTracking();
+        IQueryable<Post> query = context.Posts.AsNoTracking()
+            .Include(p => p.User)
+            .Include(p => p.MediaItems)
+            .Include(p => p.Likes)
+            .Include(p => p.Comments)
+            .Include(p => p.SavedPosts);
 
         if (content.StartsWith("#"))
         {
@@ -108,13 +120,17 @@ public class PostRepository(AppDbContext context, IMapper mapper) : IPostReposit
         return await query
             .OrderByDescending(p => p.CreatedAt)
             .Take(pageSize + 1)
-            .ProjectTo<ResponsePostDto>(mapper.ConfigurationProvider, new { currentUserId })
             .ToListAsync();
     }
 
-    public async Task<List<ResponsePostDto>> GetUserPostsAsync(Guid userId, DateTime? cursor, int pageSize, Guid currentUserId)
+    public async Task<List<Post>> GetUserPostsAsync(Guid userId, DateTime? cursor, int pageSize)
     {
-        var query = context.Posts.AsNoTracking()
+        IQueryable<Post> query = context.Posts.AsNoTracking()
+            .Include(p => p.User)
+            .Include(p => p.MediaItems)
+            .Include(p => p.Likes)
+            .Include(p => p.Comments)
+            .Include(p => p.SavedPosts)
             .Where(p => p.UserId == userId);
 
         if (cursor.HasValue)
@@ -125,17 +141,18 @@ public class PostRepository(AppDbContext context, IMapper mapper) : IPostReposit
         return await query
             .OrderByDescending(p => p.CreatedAt)
             .Take(pageSize + 1)
-            .ProjectTo<ResponsePostDto>(mapper.ConfigurationProvider, new { currentUserId })
             .ToListAsync();
     }
 
-    public async Task<List<PostGridItemDto>> GetRecentPostsGridAsync(Guid userId, int limit)
+    public async Task<List<Post>> GetRecentPostsGridAsync(Guid userId, int limit)
     {
         return await context.Posts.AsNoTracking()
+            .Include(p => p.MediaItems)
+            .Include(p => p.Likes)
+            .Include(p => p.Comments)
             .Where(p => p.UserId == userId)
             .OrderByDescending(p => p.CreatedAt)
             .Take(limit)
-            .ProjectTo<PostGridItemDto>(mapper.ConfigurationProvider)
             .ToListAsync();
     }
 

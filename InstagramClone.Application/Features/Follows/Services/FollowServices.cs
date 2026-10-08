@@ -1,6 +1,9 @@
+using InstagramClone.Application.Common;
 using InstagramClone.Application.Common.DTOs;
+using InstagramClone.Application.Features.Notifications.Services;
 using InstagramClone.Application.Features.Users.DTOs;
 using InstagramClone.Application.Interfaces;
+using InstagramClone.Application.Interfaces.BackgroundJobs;
 using InstagramClone.Application.Interfaces.Caching;
 using InstagramClone.Application.Interfaces.Data;
 using InstagramClone.Application.Interfaces.Services;
@@ -8,78 +11,68 @@ using InstagramClone.Common.Constants;
 using InstagramClone.Common.Results;
 using InstagramClone.Domain.Entities;
 using InstagramClone.Domain.Enums;
-using AutoMapper;
+using Microsoft.EntityFrameworkCore;
+using Serilog;
 using System;
 using System.Threading.Tasks;
 
-using InstagramClone.Application.Features.Notifications.Services;
-
 namespace InstagramClone.Application.Features.Follows.Services
 {
-    public class FollowServices(
-        IUnitOfWork unitOfWork,
-        ICurrentUserService currentUser,
-        ICacheService cache,
-        IBackgroundJobService backgroundJobService
-        ) : IFollowService
+    public class FollowServices(IUnitOfWork unitOfWork, ICurrentUserService currentUser, ICacheService cache, IBackgroundJobService backgroundJobService) : IFollowService
     {
         public async Task<Result<string>> SendFollowRequestAsync(string followeeIdStr)
         {
             var followerId = currentUser.UserId;
-            // Invalidate follow lists cached per (target, viewer)
-            await cache.RemoveAsync($"followers:{followeeIdStr}:{followerId}");
-            await cache.RemoveAsync($"following:{followerId}:{followeeIdStr}");
 
-            if (!Guid.TryParse(followerId, out var followerGuid) || !Guid.TryParse(followeeIdStr, out var followeeGuid))
-                return Result<string>.BadRequest(new Error(ErrorCodes.BadRequest, "Invalid ID"));
+            if (string.IsNullOrEmpty(followerId) || !Guid.TryParse(followerId, out var followerGuid) || !Guid.TryParse(followeeIdStr, out var followeeGuid))
+                return Result<string>.BadRequest(new Error(ErrorCodes.Failure, "User must be authenticated to follow someone."));
 
-            if (followerGuid == followeeGuid)
+            if (followerId == followeeIdStr)
                 return Result<string>.BadRequest(new Error(ErrorCodes.Conflict, "You cannot follow yourself."));
 
-            var targetUser = await unitOfWork.Users.GetByIdAsync(followeeGuid);
-            if (targetUser == null)
-                return Result<string>.NotFound(new Error(ErrorCodes.NotFound, "The user you are trying to follow does not exist."));
+            var followee = await unitOfWork.Users.GetByIdAsync(followeeGuid);
+            if (followee == null)
+                return Result<string>.NotFound(new Error(ErrorCodes.NotFound, "User not found"));
 
             var existingFollow = await unitOfWork.Users.GetFollowAsync(followerGuid, followeeGuid, includeDeleted: true);
 
-            string message = "";
-
-            var initialStatus = targetUser.IsPrivateAccount ? FollowStatus.Pending : FollowStatus.Accepted;
+            string message;
             bool shouldNotify = false;
             NotificationType notifyType = NotificationType.Follow;
 
             if (existingFollow == null)
             {
-                unitOfWork.Users.AddFollow(new Follow(followerGuid, followeeGuid, initialStatus));
-                message = targetUser.IsPrivateAccount ? FollowCodes.FollowRequestSent : FollowCodes.Followed;
+                var initialStatus = followee.IsPrivateAccount ? FollowStatus.Pending : FollowStatus.Accepted;
+                var newFollow = new Follow(followerGuid, followeeGuid, initialStatus);
+                unitOfWork.Users.AddFollow(newFollow);
+
+                message = followee.IsPrivateAccount ? FollowCodes.FollowRequestSent : FollowCodes.Followed;
                 shouldNotify = true;
-                notifyType = targetUser.IsPrivateAccount ? NotificationType.FollowRequest : NotificationType.Follow;
+                notifyType = followee.IsPrivateAccount ? NotificationType.FollowRequest : NotificationType.Follow;
             }
             else
             {
-                // kịch bản toggle follow/unfollow
-                if (existingFollow.IsDeleted)
-                {
-                    existingFollow.Restore();
-                    existingFollow.UpdateStatus(initialStatus);
-                    unitOfWork.Users.UpdateFollow(existingFollow);
-                    message = targetUser.IsPrivateAccount ? FollowCodes.FollowRequestSent : FollowCodes.Followed;
-                    shouldNotify = true;
-                    notifyType = targetUser.IsPrivateAccount ? NotificationType.FollowRequest : NotificationType.Follow;
-                }
-                else
+                if (!existingFollow.IsDeleted)
                 {
                     existingFollow.MarkAsDeleted();
                     unitOfWork.Users.UpdateFollow(existingFollow);
                     message = FollowCodes.CancelledFollowRequest;
                 }
+                else
+                {
+                    var reFollowStatus = followee.IsPrivateAccount ? FollowStatus.Pending : FollowStatus.Accepted;
+                    existingFollow.Restore();
+                    existingFollow.UpdateStatus(reFollowStatus);
+                    unitOfWork.Users.UpdateFollow(existingFollow);
+
+                    message = followee.IsPrivateAccount ? FollowCodes.FollowRequestSent : FollowCodes.Followed;
+                    shouldNotify = true;
+                    notifyType = followee.IsPrivateAccount ? NotificationType.FollowRequest : NotificationType.Follow;
+                }
             }
-            var saved = await unitOfWork.SaveChangesAsync() > 0;
-            if (saved)
+            try
             {
-                // Profile cache: isFollowing/isRequested + follower/following counts depend on follow relation
-                await cache.BumpScopeVersionAsync($"user:profile:rev:{followeeIdStr}");
-                await cache.BumpScopeVersionAsync($"user:profile:rev:{followerId}");
+                await unitOfWork.SaveChangesAsync();
 
                 if (shouldNotify)
                 {
@@ -89,8 +82,21 @@ namespace InstagramClone.Application.Features.Follows.Services
                     backgroundJobService.Enqueue<INotificationServices>(svc =>
                         svc.CreateAndSendNotificationAsync(followeeGuid, followerGuid, notifyType, notifyMsg, null));
                 }
+
+                return Result<string>.Success(message);
             }
-            return Result<string>.Success(message);
+            catch (DbUpdateException ex) when (IsDuplicateKeyException(ex))
+            {
+                // Race condition: 2 request cùng gửi Follow đồng thời → UNIQUE constraint reject.
+                // Idempotent: Follow đã tồn tại → trả về Success vì đây là kết quả đúng mong muốn.
+                Log.Warning("Race condition on Follow: FollowerId={FollowerId}, FolloweeId={FolloweeId}. Treating as success.", followerGuid, followeeGuid);
+                return Result<string>.Success(message);
+            }
+            catch (DbUpdateException ex)
+            {
+                Log.Error(ex, "Failed to save follow relationship: FollowerId={FollowerId}, FolloweeId={FolloweeId}", followerGuid, followeeGuid);
+                return Result<string>.Failure(new Error(ErrorCodes.Failure, "Failed to process follow request."));
+            }
         }
 
         public async Task<Result<bool>> AcceptFollowRequestAsync(string followerIdStr)
@@ -112,9 +118,6 @@ namespace InstagramClone.Application.Features.Follows.Services
             var saved = await unitOfWork.SaveChangesAsync() > 0;
             if (saved)
             {
-                await cache.BumpScopeVersionAsync($"user:profile:rev:{userId}");
-                await cache.BumpScopeVersionAsync($"user:profile:rev:{followerId}");
-
                 backgroundJobService.Enqueue<INotificationServices>(svc =>
                     svc.CreateAndSendNotificationAsync(followerId, userId, NotificationType.FollowAccept, "accepted your follow request.", null));
             }
@@ -138,11 +141,6 @@ namespace InstagramClone.Application.Features.Follows.Services
             unitOfWork.Users.UpdateFollow(request);
 
             var saved = await unitOfWork.SaveChangesAsync() > 0;
-            if (saved)
-            {
-                await cache.BumpScopeVersionAsync($"user:profile:rev:{userId}");
-                await cache.BumpScopeVersionAsync($"user:profile:rev:{followerId}");
-            }
             return saved ? Result<bool>.Success(true) : Result<bool>.Failure(new Error(ErrorCodes.Failure, "Failed to decline follow request."));
         }
 
@@ -152,10 +150,13 @@ namespace InstagramClone.Application.Features.Follows.Services
                 return Result<CursorPagedResponse<UserSummaryDto>>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
 
             var cacheKey = $"followers:{targetUserIdStr}:{currentUser.UserId}:{request.PageSize}:{request.Cursor}";
-            var cachedFollowers = await cache.GetOrCreateAsync<CursorPagedResponse<UserSummaryDto>>(cacheKey, factory: async () =>
-            {
-                return await unitOfWork.Users.GetFollowersAsync(targetUserId, currentUserId, request);
-            });
+            var cachedFollowers = await cache.GetOrCreateAsync<CursorPagedResponse<UserSummaryDto>>(
+                cacheKey, 
+                factory: async () =>
+                {
+                    return await unitOfWork.Users.GetFollowersAsync(targetUserId, currentUserId, request);
+                },
+                TimeSpan.FromSeconds(30));
 
             return Result<CursorPagedResponse<UserSummaryDto>>.Success(cachedFollowers);
         }
@@ -166,12 +167,28 @@ namespace InstagramClone.Application.Features.Follows.Services
                 return Result<CursorPagedResponse<UserSummaryDto>>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
 
             var cacheKey = $"following:{targetUserIdStr}:{currentUser.UserId}:{request.PageSize}:{request.Cursor}";
-            var cachedFollowing = await cache.GetOrCreateAsync<CursorPagedResponse<UserSummaryDto>>(cacheKey, factory: async () =>
-            {
-                return await unitOfWork.Users.GetFollowingAsync(targetUserId, currentUserId, request);
-            });
+            var cachedFollowing = await cache.GetOrCreateAsync<CursorPagedResponse<UserSummaryDto>>(
+                cacheKey, 
+                factory: async () =>
+                {
+                    return await unitOfWork.Users.GetFollowingAsync(targetUserId, currentUserId, request);
+                },
+                TimeSpan.FromSeconds(30));
 
             return Result<CursorPagedResponse<UserSummaryDto>>.Success(cachedFollowing);
+        }
+
+        /// <summary>
+        /// Kiểm tra DbUpdateException có phải do UNIQUE constraint violation (race condition) không.
+        /// SQL Server: 2627 (PK/UNIQUE violation), 2601 (unique index).
+        /// </summary>
+        private static bool IsDuplicateKeyException(DbUpdateException ex)
+        {
+            var msg = ex.InnerException?.Message ?? string.Empty;
+            return msg.Contains("duplicate", StringComparison.OrdinalIgnoreCase)
+                || msg.Contains("UNIQUE", StringComparison.OrdinalIgnoreCase)
+                || msg.Contains("2627", StringComparison.OrdinalIgnoreCase)
+                || msg.Contains("2601", StringComparison.OrdinalIgnoreCase);
         }
     }
 }

@@ -1,4 +1,3 @@
-using HealthChecks.UI.Client;
 using InstagramClone.API.Extensions;
 using InstagramClone.API.Middlewares;
 using InstagramClone.Infrastructure.Persistence;
@@ -119,58 +118,28 @@ try
     app.MapControllers();
 
 
-    //app.MapHealthChecks("/healthz", new HealthCheckOptions
-    //{
-    //    ResponseWriter = async (context, report) =>
-    //    {
-    //        context.Response.ContentType = "application/json";
-
-    //        var response = new
-    //        {
-    //            status = report.Status.ToString(),
-    //            checks = report.Entries.Select(e => new
-    //            {
-    //                name = e.Key,
-    //                status = e.Value.Status.ToString(),
-    //                description = e.Value.Description,
-    //                duration = e.Value.Duration.TotalMilliseconds,
-    //                exception = e.Value.Exception?.Message,
-    //                data = e.Value.Data
-    //            }),
-    //            totalDuration = report.TotalDuration.TotalMilliseconds
-    //        };
-
-    //        await context.Response.WriteAsJsonAsync(response, new JsonSerializerOptions
-    //        {
-    //            WriteIndented = true
-    //        });
-    //    }
-    //});
-
-    // Dành cho HealthChecks UI: Chạy TẤT CẢ các check và xuất ra JSON chuẩn để UI đọc
-    app.MapHealthChecks("/healthz", new HealthCheckOptions
+    app.MapHealthChecks("/health", new HealthCheckOptions
     {
-        ResponseWriter = UIResponseWriter.WriteHealthCheckUIResponse
-    });
+        ResponseWriter = async (context, report) =>
+        {
+            context.Response.ContentType = "application/json";
 
-    // Liveness Probe: Dùng cho Docker/K8s biết container có bị "treo" hay không
-    // Chỉ kiểm tra tag "api" (tức là cái self-check)
-    app.MapHealthChecks("/healthz/live", new HealthCheckOptions
-    {
-        Predicate = check => check.Tags.Contains("api") 
-    });
+            var response = new
+            {
+                status = report.Status.ToString(),
+                totalDuration = $"{report.TotalDuration.TotalMilliseconds:F2}ms",
+                checks = report.Entries.Select(e => new
+                {
+                    name = e.Key,
+                    status = e.Value.Status.ToString(),
+                    description = e.Value.Description,
+                    duration = $"{e.Value.Duration.TotalMilliseconds:F2}ms",
+                    exception = e.Value.Exception?.Message
+                })
+            };
 
-    // Readiness Probe: Dùng cho Docker/K8s/Nginx biết app đã sẵn sàng nhận traffic chưa
-    // Kiểm tra DB, tài nguyên hệ thống (RAM/Ổ cứng), và các dịch vụ phụ trợ
-    app.MapHealthChecks("/healthz/ready", new HealthCheckOptions
-    {
-        Predicate = check => check.Tags.Contains("db") || check.Tags.Contains("system") || check.Tags.Contains("infrastructure")
-    });
-
-    app.MapHealthChecksUI(options =>
-    {
-        options.ApiPath = "/healthchecks-api";
-        options.UIPath = "/healthchecks-ui";
+            await context.Response.WriteAsJsonAsync(response);
+        }
     });
 
     Log.Information("Application started successfully.");

@@ -1,5 +1,3 @@
-using AutoMapper;
-using AutoMapper.QueryableExtensions;
 using InstagramClone.Application.Common.DTOs;
 using InstagramClone.Application.Features.Users.DTOs;
 using InstagramClone.Application.Interfaces.Repositories;
@@ -8,11 +6,15 @@ using InstagramClone.Domain.Entities;
 using InstagramClone.Domain.Enums;
 using InstagramClone.Infrastructure.Persistence;
 using Microsoft.EntityFrameworkCore;
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Linq.Expressions;
+using System.Threading.Tasks;
 
 namespace InstagramClone.Infrastructure.Repositories;
 
-public class UserRepository(AppDbContext context, IMapper mapper) : IUserRepository
+public class UserRepository(AppDbContext context) : IUserRepository
 {
     public async Task<AppUser?> GetByIdAsync(Guid id)
     {
@@ -34,18 +36,20 @@ public class UserRepository(AppDbContext context, IMapper mapper) : IUserReposit
         return await context.AppUsers.AnyAsync(predicate);
     }
 
-    public async Task<UserProfileResponseDto?> GetUserProfileAsync(Guid targetUserId, Guid currentUserId)
+    public async Task<AppUser?> GetUserProfileDetailsAsync(Guid targetUserId)
     {
         return await context.AppUsers.AsNoTracking()
-            .Where(u => u.Id == targetUserId)
-            .ProjectTo<UserProfileResponseDto>(mapper.ConfigurationProvider, new { currentUserId, targetUserId })
-            .FirstOrDefaultAsync();
+            .Include(u => u.Followers)
+            .Include(u => u.Followings)
+            .Include(u => u.Posts)
+            .FirstOrDefaultAsync(u => u.Id == targetUserId);
     }
 
-    public async Task<List<UserSummaryDto>> SearchUsersAsync(string searchTerm, Guid currentUserId)
+    public async Task<List<AppUser>> SearchUsersAsync(string searchTerm)
     {
         searchTerm = RemoveDiacritics.RemoveDiacritic(searchTerm.Trim());
-        var query = context.AppUsers.AsNoTracking();
+        IQueryable<AppUser> query = context.AppUsers.AsNoTracking()
+            .Include(u => u.Followers);
 
         if (searchTerm.StartsWith("@"))
         {
@@ -59,7 +63,6 @@ public class UserRepository(AppDbContext context, IMapper mapper) : IUserReposit
 
         return await query
             .Take(15)
-            .ProjectTo<UserSummaryDto>(mapper.ConfigurationProvider, new { currentUserId })
             .ToListAsync();
     }
 

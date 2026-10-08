@@ -1,6 +1,8 @@
 using AutoMapper;
 using AutoMapper.QueryableExtensions;
+using InstagramClone.Application.Features.Posts.Mappings;
 using InstagramClone.Application.Features.Users.DTOs;
+using InstagramClone.Application.Features.Users.Mappings;
 using InstagramClone.Application.Interfaces.Caching;
 using InstagramClone.Application.Interfaces.Data;
 using InstagramClone.Application.Interfaces.Services;
@@ -66,7 +68,7 @@ public class UserServices(IStorageServices storageServices,
                 TimeSpan.FromSeconds(10));
         }
 
-        await cache.BumpScopeVersionAsync($"user:profile:rev:{userId}");
+        await cache.RemoveAsync($"user:profile:{userId}:{userId}");
 
         // Trả về link ảnh mới để Frontend hiển thị luôn, đừng trả về text "Success"
         return Result<string>.Success(avatarUrl);
@@ -107,7 +109,7 @@ public class UserServices(IStorageServices storageServices,
             svc => svc.DeleteFile(oldAvatarUrl!),
             TimeSpan.FromSeconds(10));
             
-        await cache.BumpScopeVersionAsync($"user:profile:rev:{userId}");
+        await cache.RemoveAsync($"user:profile:{userId}:{userId}");
         return Result<bool>.Success(true);
     }
 
@@ -129,7 +131,7 @@ public class UserServices(IStorageServices storageServices,
         if (updateResult <= 0)
             return Result<string>.Failure(new Error(ErrorCodes.Failure, "Failed to update account privacy."));
 
-        await cache.BumpScopeVersionAsync($"user:profile:rev:{userId}");
+        await cache.RemoveAsync($"user:profile:{userId}:{userId}");
 
         string privacyStatus = user.IsPrivateAccount ? PrivateAccounts.Private : PrivateAccounts.Public;
         return Result<string>.Success($"Account is now {privacyStatus}.");
@@ -152,7 +154,7 @@ public class UserServices(IStorageServices storageServices,
         if (updateResult <= 0)
             return Result<string>.Failure(new Error(ErrorCodes.Failure, "Failed to update bio."));
 
-        await cache.BumpScopeVersionAsync($"user:profile:rev:{userId}");
+        await cache.RemoveAsync($"user:profile:{userId}:{userId}");
 
         return Result<string>.Success("Bio updated successfully.");
     }
@@ -173,42 +175,35 @@ public class UserServices(IStorageServices storageServices,
         if (updateResult <= 0)
             return Result<string>.Failure(new Error(ErrorCodes.Failure, "Failed to delete bio."));
 
-        await cache.BumpScopeVersionAsync($"user:profile:rev:{userId}");
+        await cache.RemoveAsync($"user:profile:{userId}:{userId}");
 
         return Result<string>.Success("Bio deleted successfully.");
     }
 
-    /// <summary>
-    /// Cache: scope <c>user:profile:rev:{targetUserId}</c> (token bump khi profile target đổi — xem PostServices / UserServices).
-    /// Entry: <c>user:profile:{viewerId}:{targetUserId}:{rev}</c> — mỗi cặp người xem / người được xem một bản; rev đổi thì key mới, entry cũ hết hiệu lực dần (TTL).
-    /// </summary>
     public async Task<Result<UserProfileResponseDto>> GetUserProfileAsync(string targetUserId)
     {
         var userId = currentUser.UserId;
-        var profileRev = await cache.GetScopeVersionAsync($"user:profile:rev:{targetUserId}");
-        var cacheKey = $"user:profile:{userId}:{targetUserId}:{profileRev}";
+        var cacheKey = $"user:profile:{targetUserId}:{userId}";
 
         var cachedProfile = await cache.GetOrCreateAsync<UserProfileResponseDto?>(
             cacheKey,
             factory: async () =>
             {
                 if (!Guid.TryParse(targetUserId, out var targetUserIdGuid)) return null;
-                var userExists = await unitOfWork.Users.AnyAsync(u => u.Id == targetUserIdGuid);
-                if (!userExists) return null;
 
-                bool myAccount = !string.IsNullOrEmpty(userId) && userId.Equals(targetUserId, StringComparison.OrdinalIgnoreCase);
+                var targetUser = await unitOfWork.Users.GetUserProfileDetailsAsync(targetUserIdGuid);
+                if (targetUser == null) return null;
 
                 _ = Guid.TryParse(userId, out var currentUserIdGuid);
-                var profile = await unitOfWork.Users.GetUserProfileAsync(targetUserIdGuid, currentUserIdGuid);
+                var profile = targetUser.ToUserProfileResponseDto(currentUserIdGuid);
 
-                if (profile == null) return null;
-
-                // 2. LOGIC BẢO MẬT: Load bài viết nếu có quyền
+                bool myAccount = !string.IsNullOrEmpty(userId) && userId.Equals(targetUserId, StringComparison.OrdinalIgnoreCase);
                 bool canViewPosts = myAccount || !profile.IsPrivateAccount || profile.IsFollowing;
 
                 if (canViewPosts)
                 {
-                    profile.RecentPosts = await unitOfWork.Posts.GetRecentPostsGridAsync(targetUserIdGuid, 12);
+                    var recentPosts = await unitOfWork.Posts.GetRecentPostsGridAsync(targetUserIdGuid, 12);
+                    profile.RecentPosts = recentPosts.ToPostGridItemDtos();
                 }
 
                 return profile;
@@ -233,8 +228,9 @@ public class UserServices(IStorageServices storageServices,
         if (!Guid.TryParse(userId, out var currentUserId))
             return Result<List<UserSummaryDto>>.BadRequest(new Error(ErrorCodes.BadRequest, "Invalid User ID."));
 
-        var users = await unitOfWork.Users.SearchUsersAsync(searchTerm, currentUserId);
+        var users = await unitOfWork.Users.SearchUsersAsync(searchTerm);
+        var userDtos = users.ToUserSummaryDtos(currentUserId);
 
-        return Result<List<UserSummaryDto>>.Success(users);
+        return Result<List<UserSummaryDto>>.Success(userDtos);
     }
 }

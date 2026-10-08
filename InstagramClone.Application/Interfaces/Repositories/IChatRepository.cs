@@ -1,4 +1,3 @@
-using InstagramClone.Application.Features.Chat.DTOs;
 using InstagramClone.Domain.Entities;
 using System;
 using System.Collections.Generic;
@@ -26,8 +25,8 @@ public interface IChatRepository
     Task<Message?> GetMessageByIdAsync(Guid messageId);
     Task<Message?> GetUserMessageByIdAsync(Guid messageId, Guid userId);
     void AddMessage(Message message);
-    Task<List<MessageDto>> GetRoomMessagesAsync(Guid chatRoomId, DateTime? cursor, int pageSize);
-    Task<List<ChatRoomDto>> GetUserChatRoomsAsync(Guid userId);
+    Task<List<Message>> GetRoomMessagesAsync(Guid chatRoomId, DateTime? cursor, int pageSize);
+    Task<List<ChatRoom>> GetUserChatRoomsAsync(Guid userId);
 
     // Reactions
     Task<MessageReaction?> GetReactionAsync(Guid messageId, Guid userId);

@@ -15,8 +15,8 @@ public interface IUserRepository
     void Update(AppUser user);
     Task<bool> AnyAsync(Expression<Func<AppUser, bool>> predicate);
 
-    Task<UserProfileResponseDto?> GetUserProfileAsync(Guid targetUserId, Guid currentUserId);
-    Task<List<UserSummaryDto>> SearchUsersAsync(string searchTerm, Guid currentUserId);
+    Task<AppUser?> GetUserProfileDetailsAsync(Guid targetUserId);
+    Task<List<AppUser>> SearchUsersAsync(string searchTerm);
 
     // Follows
     Task<Follow?> GetFollowAsync(Guid followerId, Guid followeeId, bool includeDeleted = false);

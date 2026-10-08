@@ -1,6 +1,3 @@
-using AutoMapper;
-using AutoMapper.QueryableExtensions;
-using InstagramClone.Application.Features.Chat.DTOs;
 using InstagramClone.Application.Interfaces.Repositories;
 using InstagramClone.Domain.Entities;
 using InstagramClone.Infrastructure.Persistence;
@@ -12,7 +9,7 @@ using System.Threading.Tasks;
 
 namespace InstagramClone.Infrastructure.Repositories;
 
-public class ChatRepository(AppDbContext context, IMapper mapper) : IChatRepository
+public class ChatRepository(AppDbContext context) : IChatRepository
 {
     public async Task<ChatRoom?> GetRoomByIdAsync(Guid id)
     {
@@ -90,9 +87,13 @@ public class ChatRepository(AppDbContext context, IMapper mapper) : IChatReposit
         context.Messages.Add(message);
     }
 
-    public async Task<List<MessageDto>> GetRoomMessagesAsync(Guid chatRoomId, DateTime? cursor, int pageSize)
+    public async Task<List<Message>> GetRoomMessagesAsync(Guid chatRoomId, DateTime? cursor, int pageSize)
     {
-        var query = context.Messages.AsNoTracking();
+        IQueryable<Message> query = context.Messages.AsNoTracking()
+            .Include(m => m.Sender)
+            .Include(m => m.Reactions)
+                .ThenInclude(r => r.User)
+            .Where(m => m.ChatRoomId == chatRoomId);
 
         if (cursor.HasValue)
         {
@@ -100,19 +101,19 @@ public class ChatRepository(AppDbContext context, IMapper mapper) : IChatReposit
         }
 
         return await query
-            .Where(m => m.ChatRoomId == chatRoomId)
             .OrderByDescending(m => m.CreatedAt)
             .Take(pageSize + 1)
-            .ProjectTo<MessageDto>(mapper.ConfigurationProvider)
             .ToListAsync();
     }
 
-    public async Task<List<ChatRoomDto>> GetUserChatRoomsAsync(Guid userId)
+    public async Task<List<ChatRoom>> GetUserChatRoomsAsync(Guid userId)
     {
         return await context.ChatRooms.AsNoTracking()
+            .Include(cr => cr.ChatParticipant)
+                .ThenInclude(cp => cp.User)
+            .Include(cr => cr.Messages)
             .Where(cr => cr.ChatParticipant.Any(cp => cp.UserId == userId))
-            .ProjectTo<ChatRoomDto>(mapper.ConfigurationProvider, new { currentUserId = userId })
-            .OrderByDescending(cr => cr.LastestMessageAt)
+            .OrderByDescending(cr => cr.Messages.OrderByDescending(m => m.CreatedAt).Select(m => (DateTime?)m.CreatedAt).FirstOrDefault() ?? cr.CreatedAt)
             .ToListAsync();
     }
 

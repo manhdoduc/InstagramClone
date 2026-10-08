@@ -71,10 +71,6 @@ public class StoryServices(
                 job => job.ExpireStoryAsync(story.Id),
                 TimeSpan.FromHours(24));
 
-            // 4. Invalidate stories cache
-            await cache.BumpScopeVersionAsync($"stories:user:{userId}");
-            await cache.BumpScopeVersionAsync("stories:feed:version");
-
             return Result<Guid>.Success(story.Id);
         }
         catch (Exception ex)

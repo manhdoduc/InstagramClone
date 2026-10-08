@@ -1,5 +1,3 @@
-using InstagramClone.Application.Features.Posts.DTOs;
-using InstagramClone.Application.Features.Users.DTOs;
 using InstagramClone.Domain.Entities;
 using System;
 using System.Collections.Generic;
@@ -17,13 +15,13 @@ public interface IPostRepository
     void Update(Post post);
     Task<bool> AnyAsync(Expression<Func<Post, bool>> predicate);
 
-    // Queries
-    Task<ResponsePostDto?> GetPostDtoByIdAsync(Guid id, Guid currentUserId);
-    Task<List<ResponsePostDto>> GetFeedsAsync(List<Guid> followingIds, DateTime? cursor, int pageSize, Guid currentUserId);
-    Task<List<ResponsePostDto>> GetSavedPostsAsync(Guid userId, DateTime? cursor, int pageSize);
-    Task<List<ResponsePostDto>> GetSearchPostsAsync(string content, DateTime? cursor, int pageSize, Guid currentUserId);
-    Task<List<ResponsePostDto>> GetUserPostsAsync(Guid userId, DateTime? cursor, int pageSize, Guid currentUserId);
-    Task<List<PostGridItemDto>> GetRecentPostsGridAsync(Guid userId, int limit);
+    // Queries (Returns Domain Entities)
+    Task<Post?> GetPostDetailsByIdAsync(Guid id);
+    Task<List<Post>> GetFeedsAsync(List<Guid> followingIds, DateTime? cursor, int pageSize);
+    Task<List<Post>> GetSavedPostsAsync(Guid userId, DateTime? cursor, int pageSize);
+    Task<List<Post>> GetSearchPostsAsync(string content, DateTime? cursor, int pageSize);
+    Task<List<Post>> GetUserPostsAsync(Guid userId, DateTime? cursor, int pageSize);
+    Task<List<Post>> GetRecentPostsGridAsync(Guid userId, int limit);
 
     // Likes & Saves (Sub-entities/Relationships)
     Task<Like?> GetLikeAsync(Guid userId, Guid postId, bool includeDeleted = false);

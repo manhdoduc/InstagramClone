@@ -2,52 +2,52 @@ using InstagramClone.Application.Common;
 using InstagramClone.Application.Common.DTOs;
 using InstagramClone.Application.Features.Notifications.Services;
 using InstagramClone.Application.Features.Posts.DTOs;
+using InstagramClone.Application.Features.Posts.Mappings;
+using InstagramClone.Application.Interfaces;
+using InstagramClone.Application.Interfaces.BackgroundJobs;
 using InstagramClone.Application.Interfaces.Caching;
 using InstagramClone.Application.Interfaces.Data;
 using InstagramClone.Application.Interfaces.Services;
 using InstagramClone.Common.Constants;
-using InstagramClone.Common.Models.Config;
 using InstagramClone.Common.Results;
+using InstagramClone.Domain.Constants;
 using InstagramClone.Domain.Entities;
 using InstagramClone.Domain.Enums;
+using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Options;
 using Serilog;
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
 
 namespace InstagramClone.Application.Features.Posts.Services;
 
-public class PostServices(
-    IUnitOfWork unitOfWork,
-    ICurrentUserService currentUser,
-    IStorageServices storageServices,
-    ICacheService cache,
-    IBackgroundJobService backgroundJobService,
-    IOptions<MediaSettings> mediaSettingsOptions
-    ) : IPostServices
+public class PostServices(IUnitOfWork unitOfWork,
+                          ICurrentUserService currentUser,
+                          IStorageServices storageServices,
+                          ICacheService cache,
+                          IBackgroundJobService backgroundJobService,
+                          Microsoft.Extensions.Options.IOptions<InstagramClone.Common.Models.Config.MediaSettings> mediaSettingsOptions) : IPostServices
 {
-    private readonly MediaSettings _mediaSettings = mediaSettingsOptions.Value;
-
+    private readonly InstagramClone.Common.Models.Config.MediaSettings _mediaSettings = mediaSettingsOptions.Value;
     public async Task<Result<string>> CreatePostAsync(CreatePostDto createPostDto)
     {
-        // validate userId
-        if (!Guid.TryParse(currentUser.UserId, out var userId)) 
-            return Result<string>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
-
-        // 2. create post
-        var newPost = new Post(userId, createPostDto.Content ?? string.Empty);
-
-        // lưu tạm url để rollback nếu có lỗi
         var uploadUrls = new List<string>();
 
-        // 3. upload media files
+        if (!Guid.TryParse(currentUser.UserId, out var userId))
+            return Result<string>.Failure(new Error("Unauthorized", "User is not authenticated"));
+
         try
         {
-            foreach(var file in createPostDto.Files)
+            var newPost = new Post(userId, createPostDto.Content ?? string.Empty);
+
+            foreach (var file in createPostDto.Files)
             {
                 var uploadResult = await storageServices.UploadImageAsync(file, userId.ToString(), "posts", _mediaSettings.Post.MaxWidth, _mediaSettings.Post.MaxHeight);
 
-                if(!uploadResult.IsSuccess)
+                if (!uploadResult.IsSuccess)
                 {
                     return Result<string>.Failure(new Error(ErrorCodes.Failure, $"Failed to upload media file {file.FileName}: {uploadResult.Errors.FirstOrDefault().Description}"));
                 }
@@ -55,24 +55,22 @@ public class PostServices(
                 var mediaUrl = uploadResult.Value!;
                 uploadUrls.Add(mediaUrl);
 
-                // add media url to post
                 newPost.AddMedia(new PostMedia { MediaUrl = mediaUrl });
             }
 
-            // 4. save post to database
             unitOfWork.Posts.Add(newPost);
 
             var tags = ExtractHashtags(createPostDto.Content ?? string.Empty);
 
-            if(tags.Any())
+            if (tags.Any())
             {
-                var exitstingTags = await unitOfWork.Posts.GetHashtagsByNamesAsync(tags);
-                
-                foreach(var tag in tags)
-                {
-                    var hashtagEntity = exitstingTags.FirstOrDefault(t => t.Name == tag);
+                var existingTags = await unitOfWork.Posts.GetHashtagsByNamesAsync(tags);
 
-                    if(hashtagEntity == null)
+                foreach (var tag in tags)
+                {
+                    var hashtagEntity = existingTags.FirstOrDefault(t => t.Name == tag);
+
+                    if (hashtagEntity == null)
                     {
                         hashtagEntity = new Hashtag { Name = tag };
                         unitOfWork.Posts.AddHashtag(hashtagEntity);
@@ -87,29 +85,23 @@ public class PostServices(
             }
 
             var saved = await unitOfWork.SaveChangesAsync() > 0;
-            if(!saved)                    
+            if (!saved)
             {
                 Log.Error("User {UserId} failed to save post {Content} to database", userId, createPostDto.Content);
                 return Result<string>.Failure(new Error(ErrorCodes.Failure, "Failed to save post to database"));
             }
-                
-            Log.Information("User {UserId} created post {PostId} with {MediaCount} images", userId, newPost.Id, newPost.MediaItems.Count);
-            await cache.BumpScopeVersionAsync("posts:feed:data");
-            await cache.BumpScopeVersionAsync("posts:search:data");
-            await cache.BumpScopeVersionAsync($"user:profile:rev:{userId}");
-            return Result<string>.Success(newPost.Id.ToString());
 
+            Log.Information("User {UserId} created post {PostId} with {MediaCount} images", userId, newPost.Id, newPost.MediaItems.Count);
+            return Result<string>.Success(newPost.Id.ToString());
         }
-        catch (Exception ex) 
+        catch (Exception ex)
         {
-            Log.Error(ex, "Error creating post for userId {UserId}: {Message}", userId, ex.Message);
-            // rollback uploaded files
-            foreach (var url in uploadUrls)
-            {
-                await storageServices.DeleteFile(url);
-            }
-                
-            return Result<string>.Failure(new Error("PostCreationFailed", ex.Message));
+            Log.Error(ex, "DB save failed after upload for userId {UserId}. Compensating: deleting {Count} uploaded file(s).", userId, uploadUrls.Count);
+
+            // Compensating Transaction: xóa các file đã upload lên Cloud Storage để tránh file mồ côi
+            await CleanupUploadedFilesAsync(uploadUrls);
+
+            return Result<string>.Failure(new Error(ErrorCodes.Failure, "Failed to create post. Please try again."));
         }
     }
 
@@ -118,27 +110,23 @@ public class PostServices(
         if (!Guid.TryParse(currentUser.UserId, out var userId))
             return Result.Failure(new Error("Unauthorized", "User is not authenticated"));
 
-        //1. find post end medias 
         var post = await unitOfWork.Posts.GetByIdWithMediaAsync(postId);
 
-        if(post == null)
+        if (post == null)
             return Result.NotFound(new Error(ErrorCodes.NotFound, "Post does not exist"));
 
-        //2. check ownership or admin role
         if (post.UserId != userId && !currentUser.IsAdmin)
             return Result.Failure(new Error(ErrorCodes.Forbid, "User is not authorized to delete this post"));
 
-        //3. soft delete post and medias
-        post.MarkAsDeleted(); // soft delete post
+        post.MarkAsDeleted();
 
         foreach (var media in post.MediaItems)
         {
-            media.MarkAsDeleted(); // soft delete media
+            media.MarkAsDeleted();
         }
 
         unitOfWork.Posts.Update(post);
 
-        //4. save changes to database
         try
         {
             var rowsAffected = await unitOfWork.SaveChangesAsync();
@@ -150,10 +138,7 @@ public class PostServices(
             }
 
             Log.Information("User {UserId} deleted post {PostId}", userId, postId);
-            await cache.BumpScopeVersionAsync($"post:detail:rev:{postId}");
-            await cache.BumpScopeVersionAsync("posts:feed:data");
-            await cache.BumpScopeVersionAsync("posts:search:data");
-            await cache.BumpScopeVersionAsync($"user:profile:rev:{post.UserId}");
+            await cache.RemoveAsync($"post:detail:{postId}:{userId}");
             return Result.Success();
         }
         catch (Exception ex)
@@ -165,30 +150,33 @@ public class PostServices(
 
     public async Task<Result<CursorPagedResponse<ResponsePostDto>>> GetFeedsAsync(CursorPaginationRequest cursorPagination)
     {
-        var feedDataVer = await cache.GetScopeVersionAsync("posts:feed:data");
-        var feedUserScope = await cache.GetScopeVersionAsync($"posts:feed:scope:{currentUser.UserId}");
-        var cacheKey = $"posts:feed:{currentUser.UserId}:{feedDataVer}:{feedUserScope}:{cursorPagination.PageSize}:{cursorPagination.Cursor}";
+        if (!Guid.TryParse(currentUser.UserId, out var userId))
+            return Result<CursorPagedResponse<ResponsePostDto>>.Failure(new Error(ErrorCodes.BadRequest, "Invalid user ID"));
 
-        var cachedFeed = await cache.GetOrCreateAsync<CursorPagedResponse<ResponsePostDto>>(cacheKey, factory: async () =>
-        {
-            if (!Guid.TryParse(currentUser.UserId, out var userId)) throw new InvalidOperationException("Invalid user ID"); // This should not happen if the user is authenticated
+        var cacheKey = $"posts:feed:{userId}:{cursorPagination.PageSize}:{cursorPagination.Cursor}";
 
-            // Lấy danh sách ID những người mình đang Follow (đã Accepted)
-            var followingIds = await unitOfWork.Users.GetFollowingIdsAsync(userId);
-            followingIds.Add(userId);
+        var cachedFeed = await cache.GetOrCreateAsync<CursorPagedResponse<ResponsePostDto>>(
+            cacheKey,
+            factory: async () =>
+            {
+                var followingIds = await unitOfWork.Users.GetFollowingIdsAsync(userId);
+                followingIds.Add(userId);
 
-            var posts = await unitOfWork.Posts.GetFeedsAsync(followingIds, cursorPagination.Cursor, cursorPagination.PageSize, userId);
+                var posts = await unitOfWork.Posts.GetFeedsAsync(followingIds, cursorPagination.Cursor, cursorPagination.PageSize);
+                var postDtos = posts.ToResponsePostDtos(userId);
 
-            return PaginationHelper.ToCursorPaged(posts, cursorPagination.PageSize, p => p.CreatedAt);
-        });
+                return PaginationHelper.ToCursorPaged(postDtos, cursorPagination.PageSize, p => p.CreatedAt);
+            },
+            TimeSpan.FromSeconds(30));
 
         return Result<CursorPagedResponse<ResponsePostDto>>.Success(cachedFeed);
     }
 
     public async Task<Result<bool>> UpdatePostAsync(string content, Guid postId)
     {
-        if (!Guid.TryParse(currentUser.UserId, out var userId)) return Result<bool>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
-        await cache.BumpScopeVersionAsync($"post:detail:rev:{postId}");
+        if (!Guid.TryParse(currentUser.UserId, out var userId)) 
+            return Result<bool>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
+
         var postToUpdate = await unitOfWork.Posts.GetByIdAsync(postId);
 
         if (postToUpdate == null)
@@ -206,9 +194,7 @@ public class PostServices(
         try
         {
             await unitOfWork.SaveChangesAsync();
-            await cache.BumpScopeVersionAsync("posts:feed:data");
-            await cache.BumpScopeVersionAsync("posts:search:data");
-            await cache.BumpScopeVersionAsync($"user:profile:rev:{postToUpdate.UserId}");
+            await cache.RemoveAsync($"post:detail:{postId}:{userId}");
             return Result<bool>.Success(true);
         }
         catch (Exception ex)
@@ -220,15 +206,21 @@ public class PostServices(
 
     public async Task<Result<ResponsePostDto>> GetPostByIdAsync(Guid postId)
     {
-        if (!Guid.TryParse(currentUser.UserId, out var userId)) return Result<ResponsePostDto>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
-        var detailRev = await cache.GetScopeVersionAsync($"post:detail:rev:{postId}");
-        var cacheKey = $"post:detail:{postId}:{userId}:{detailRev}";
+        if (!Guid.TryParse(currentUser.UserId, out var userId)) 
+            return Result<ResponsePostDto>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
 
-        var cachedPost = await cache.GetOrCreateAsync<ResponsePostDto?>(cacheKey, factory: async () => 
-        {
-            return await unitOfWork.Posts.GetPostDtoByIdAsync(postId, userId);
-        });
-        if(cachedPost == null)
+        var cacheKey = $"post:detail:{postId}:{userId}";
+
+        var cachedPost = await cache.GetOrCreateAsync<ResponsePostDto?>(
+            cacheKey, 
+            factory: async () => 
+            {
+                var post = await unitOfWork.Posts.GetPostDetailsByIdAsync(postId);
+                return post?.ToResponsePostDto(userId);
+            },
+            TimeSpan.FromMinutes(2));
+
+        if (cachedPost == null)
             return Result<ResponsePostDto>.NotFound(new Error(ErrorCodes.NotFound, "Post does not exist"));
 
         return Result<ResponsePostDto>.Success(cachedPost);
@@ -239,7 +231,7 @@ public class PostServices(
         if (!Guid.TryParse(currentUser.UserId, out var currentUserId)) return Result.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
 
         var postExists = await unitOfWork.Posts.AnyAsync(p => p.Id == postId);
-        if(!postExists)
+        if (!postExists)
             return Result.NotFound(new Error(ErrorCodes.NotFound, "Post does not exist"));
 
         var existingSave = await unitOfWork.Posts.GetSavedPostAsync(currentUserId, postId, includeDeleted: true);
@@ -251,15 +243,13 @@ public class PostServices(
         }
         else
         {
-            existingSave.ToggleDeleted(); // toggle trạng thái saved/unsaved
+            existingSave.ToggleDeleted();
             unitOfWork.Posts.UpdateSavedPost(existingSave);
         }
         try
         {
             await unitOfWork.SaveChangesAsync();
-            await cache.BumpScopeVersionAsync($"posts:feed:scope:{currentUserId}");
-            await cache.BumpScopeVersionAsync($"posts:saved:scope:{currentUserId}");
-            await cache.BumpScopeVersionAsync($"post:detail:rev:{postId}");
+            await cache.RemoveAsync($"post:detail:{postId}:{currentUserId}");
             return Result.Success();
         }
         catch (Exception ex)
@@ -268,17 +258,22 @@ public class PostServices(
             return Result.Failure(new Error(ErrorCodes.Failure, "Failed to update post save status."));
         }
     }
-    
+
     public async Task<Result<CursorPagedResponse<ResponsePostDto>>> GetSavedPostsAsync(CursorPaginationRequest cursorPagination)
     {
-        if (!Guid.TryParse(currentUser.UserId, out var userId)) return Result<CursorPagedResponse<ResponsePostDto>>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
-        var savedScope = await cache.GetScopeVersionAsync($"posts:saved:scope:{userId}");
-        var cacheKey = $"posts:saved:{userId}:{savedScope}:{cursorPagination.PageSize}:{cursorPagination.Cursor}";
-        var cachedSavedPosts = await cache.GetOrCreateAsync<CursorPagedResponse<ResponsePostDto>>(cacheKey, factory: async () =>
-        {
-            var posts = await unitOfWork.Posts.GetSavedPostsAsync(userId, cursorPagination.Cursor, cursorPagination.PageSize);
-            return PaginationHelper.ToCursorPaged(posts, cursorPagination.PageSize, p => p.CreatedAt);
-        });
+        if (!Guid.TryParse(currentUser.UserId, out var userId)) 
+            return Result<CursorPagedResponse<ResponsePostDto>>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
+
+        var cacheKey = $"posts:saved:{userId}:{cursorPagination.PageSize}:{cursorPagination.Cursor}";
+        var cachedSavedPosts = await cache.GetOrCreateAsync<CursorPagedResponse<ResponsePostDto>>(
+            cacheKey, 
+            factory: async () =>
+            {
+                var posts = await unitOfWork.Posts.GetSavedPostsAsync(userId, cursorPagination.Cursor, cursorPagination.PageSize);
+                var dtos = posts.ToResponsePostDtos(userId);
+                return PaginationHelper.ToCursorPaged(dtos, cursorPagination.PageSize, p => p.CreatedAt);
+            },
+            TimeSpan.FromSeconds(30));
 
         return Result<CursorPagedResponse<ResponsePostDto>>.Success(cachedSavedPosts);
     }
@@ -297,33 +292,32 @@ public class PostServices(
 
     public async Task<Result<CursorPagedResponse<ResponsePostDto>>> GetSearchPostsAsync(string content, CursorPaginationRequest request)
     {
-        if (!Guid.TryParse(currentUser.UserId, out var currentUserId)) return Result<CursorPagedResponse<ResponsePostDto>>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
-        var searchDataVer = await cache.GetScopeVersionAsync("posts:search:data");
-        var feedUserScope = await cache.GetScopeVersionAsync($"posts:feed:scope:{currentUser.UserId}");
-        var cacheKey = $"posts:search:{content}:{currentUserId}:{searchDataVer}:{feedUserScope}:{request.PageSize}:{request.Cursor}";
+        if (!Guid.TryParse(currentUser.UserId, out var currentUserId)) 
+            return Result<CursorPagedResponse<ResponsePostDto>>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
 
-        var cachedSearchResult = await cache.GetOrCreateAsync<CursorPagedResponse<ResponsePostDto>>(cacheKey, factory: async () =>
+        if (string.IsNullOrWhiteSpace(content))
         {
-            if (string.IsNullOrWhiteSpace(content))
-            {
-                throw new InvalidOperationException("Search content cannot be empty");
-            }
-
-            var posts = await unitOfWork.Posts.GetSearchPostsAsync(content, request.Cursor, request.PageSize, currentUserId);
-            return PaginationHelper.ToCursorPaged(posts, request.PageSize, p => p.CreatedAt);
-        });
-
-        if(cachedSearchResult == null)
             return Result<CursorPagedResponse<ResponsePostDto>>.Failure(new Error(ErrorCodes.BadRequest, "Search content cannot be empty"));
+        }
 
-        return Result<CursorPagedResponse<ResponsePostDto>>.Success(cachedSearchResult);
+        var cacheKey = $"posts:search:{content.Trim().ToLower()}:{currentUserId}:{request.PageSize}:{request.Cursor}";
+
+        var cachedSearchResult = await cache.GetOrCreateAsync<CursorPagedResponse<ResponsePostDto>>(
+            cacheKey, 
+            factory: async () =>
+            {
+                var posts = await unitOfWork.Posts.GetSearchPostsAsync(content, request.Cursor, request.PageSize);
+                var dtos = posts.ToResponsePostDtos(currentUserId);
+                return PaginationHelper.ToCursorPaged(dtos, request.PageSize, p => p.CreatedAt);
+            },
+            TimeSpan.FromSeconds(30));
+
+        return Result<CursorPagedResponse<ResponsePostDto>>.Success(cachedSearchResult!);
     }
 
     public async Task<Result> ToggleLikeAsync(Guid postId)
     {
         if (!Guid.TryParse(currentUser.UserId, out var userId)) return Result.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
-        await cache.BumpScopeVersionAsync($"post:detail:rev:{postId}");
-        await cache.BumpScopeVersionAsync($"posts:feed:scope:{userId}");
 
         var post = await unitOfWork.Posts.GetByIdAsync(postId);
         if (post == null)
@@ -347,6 +341,8 @@ public class PostServices(
         try
         {
             await unitOfWork.SaveChangesAsync();
+            await cache.RemoveAsync($"post:detail:{postId}:{userId}");
+
             if (isNowLiked)
             {
                 backgroundJobService.Enqueue<INotificationServices>(svc =>
@@ -354,9 +350,16 @@ public class PostServices(
             }
             return Result.Success();
         }
-        catch (DbUpdateException)
+        catch (DbUpdateException ex) when (IsDuplicateKeyException(ex))
         {
-            Log.Error("Toggle like failed for post {PostId} user {UserId}", postId, userId);
+            // Race condition: 2 request cùng Like đồng thời → DB reject request thứ 2 do UNIQUE constraint.
+            // Đây là hành vi đúng của hệ thống (idempotent). Log Warning thay vì Error.
+            Log.Warning("Race condition detected on Like: PostId={PostId}, UserId={UserId}. Treating as success (idempotent).", postId, userId);
+            return Result.Success();
+        }
+        catch (DbUpdateException ex)
+        {
+            Log.Error(ex, "Toggle like failed for post {PostId} user {UserId}", postId, userId);
             return Result.Failure(new Error(ErrorCodes.Failure, "Failed to update like status."));
         }
     }
@@ -383,16 +386,53 @@ public class PostServices(
             }
         }
 
-        var profileRev = await cache.GetScopeVersionAsync($"user:profile:rev:{targetUserId}");
-        var userScope = await cache.GetScopeVersionAsync($"posts:feed:scope:{currentUserId}");
-        var cacheKey = $"posts:user:{targetUserId}:{currentUserId}:{profileRev}:{userScope}:{request.PageSize}:{request.Cursor}";
+        var cacheKey = $"posts:user:{targetUserId}:{currentUserId}:{request.PageSize}:{request.Cursor}";
 
-        var cachedPosts = await cache.GetOrCreateAsync<CursorPagedResponse<ResponsePostDto>>(cacheKey, factory: async () =>
-        {
-            var posts = await unitOfWork.Posts.GetUserPostsAsync(targetUserGuid, request.Cursor, request.PageSize, currentUserId);
-            return PaginationHelper.ToCursorPaged(posts, request.PageSize, p => p.CreatedAt);
-        });
+        var cachedPosts = await cache.GetOrCreateAsync<CursorPagedResponse<ResponsePostDto>>(
+            cacheKey, 
+            factory: async () =>
+            {
+                var posts = await unitOfWork.Posts.GetUserPostsAsync(targetUserGuid, request.Cursor, request.PageSize);
+                var dtos = posts.ToResponsePostDtos(currentUserId);
+                return PaginationHelper.ToCursorPaged(dtos, request.PageSize, p => p.CreatedAt);
+            },
+            TimeSpan.FromSeconds(30));
 
         return Result<CursorPagedResponse<ResponsePostDto>>.Success(cachedPosts!);
+    }
+
+    /// <summary>
+    /// Compensating Transaction helper: Xóa các file đã upload khi DB save thất bại.
+    /// Mỗi file được xóa trong try-catch riêng để tránh lỗi một file làm hỏng toàn bộ cleanup.
+    /// </summary>
+    private async Task CleanupUploadedFilesAsync(List<string> urls)
+    {
+        foreach (var url in urls)
+        {
+            try
+            {
+                await storageServices.DeleteFile(url);
+                Log.Information("Cleaned up orphaned file: {Url}", url);
+            }
+            catch (Exception ex)
+            {
+                // Không throw — ghi log để xử lý thủ công sau nếu cần
+                Log.Warning(ex, "Failed to cleanup orphaned file: {Url}. Manual cleanup may be required.", url);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Kiểm tra DbUpdateException có phải do UNIQUE constraint violation (race condition) không.
+    /// SQL Server error 2627: Unique constraint. Error 2601: Unique index.
+    /// PostgreSQL error 23505. SQLite error 19.
+    /// </summary>
+    private static bool IsDuplicateKeyException(DbUpdateException ex)
+    {
+        var innerMessage = ex.InnerException?.Message ?? string.Empty;
+        return innerMessage.Contains("duplicate", StringComparison.OrdinalIgnoreCase)
+            || innerMessage.Contains("UNIQUE", StringComparison.OrdinalIgnoreCase)
+            || innerMessage.Contains("2627", StringComparison.OrdinalIgnoreCase)
+            || innerMessage.Contains("2601", StringComparison.OrdinalIgnoreCase);
     }
 }

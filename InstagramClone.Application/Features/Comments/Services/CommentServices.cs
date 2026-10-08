@@ -1,19 +1,18 @@
+using InstagramClone.Application.Common;
 using InstagramClone.Application.Common.DTOs;
+using InstagramClone.Application.Features.Comments.Mappings;
+using InstagramClone.Application.Features.Notifications.Services;
 using InstagramClone.Application.Features.Posts.DTOs;
 using InstagramClone.Application.Interfaces;
+using InstagramClone.Application.Interfaces.Caching;
+using InstagramClone.Application.Interfaces.Data;
 using InstagramClone.Application.Interfaces.Services;
 using InstagramClone.Common.Constants;
 using InstagramClone.Common.Results;
 using InstagramClone.Domain.Entities;
-using InstagramClone.Application.Interfaces.Data;
-using InstagramClone.Application.Interfaces.Caching;
-using AutoMapper;
-using InstagramClone.Application.Common;
+using InstagramClone.Domain.Enums;
 using System;
 using System.Threading.Tasks;
-
-using InstagramClone.Application.Features.Notifications.Services;
-using InstagramClone.Domain.Enums;
 
 namespace InstagramClone.Application.Features.Comments.Services;
 
@@ -26,8 +25,8 @@ public class CommentServices(
 {
     public async Task<Result<ResponseCommentDto>> AddCommentAsync(Guid postId, CreateCommentDto commentDto)
     {
-        if (!Guid.TryParse(currentUser.UserId, out var userId)) return Result<ResponseCommentDto>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
-        await cache.BumpScopeVersionAsync($"comments:{postId}:version");
+        if (!Guid.TryParse(currentUser.UserId, out var userId)) 
+            return Result<ResponseCommentDto>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
 
         var post = await unitOfWork.Posts.GetByIdAsync(postId);
         if (post == null)
@@ -58,16 +57,20 @@ public class CommentServices(
 
     public async Task<Result<CursorPagedResponse<ResponseCommentDto>>> GetCommentsByPostIdAsync(Guid postId, CursorPaginationRequest pagination)
     {
-        if (!Guid.TryParse(currentUser.UserId, out var userId)) return Result<CursorPagedResponse<ResponseCommentDto>>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
-        var version = await cache.GetScopeVersionAsync($"comments:{postId}:version");
+        if (!Guid.TryParse(currentUser.UserId, out var userId)) 
+            return Result<CursorPagedResponse<ResponseCommentDto>>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
 
-        var cacheKey = $"comments:{postId}:{version}:{userId}:{pagination.Cursor}:{pagination.PageSize}";
+        var cacheKey = $"comments:{postId}:{pagination.Cursor}:{pagination.PageSize}:{userId}";
 
-        var cachedPost = await cache.GetOrCreateAsync<CursorPagedResponse<ResponseCommentDto>>(cacheKey, factory: async () =>
-        {
-            var comments = await unitOfWork.Comments.GetCommentsByPostIdAsync(postId, pagination.Cursor, pagination.PageSize, userId);
-            return PaginationHelper.ToCursorPaged(comments, pagination.PageSize, c => c.CreatedAt);
-        });
+        var cachedPost = await cache.GetOrCreateAsync<CursorPagedResponse<ResponseCommentDto>>(
+            cacheKey, 
+            factory: async () =>
+            {
+                var comments = await unitOfWork.Comments.GetCommentsByPostIdAsync(postId, pagination.Cursor, pagination.PageSize);
+                var dtos = comments.ToResponseCommentDtos(userId);
+                return PaginationHelper.ToCursorPaged(dtos, pagination.PageSize, c => c.CreatedAt);
+            },
+            TimeSpan.FromSeconds(30));
 
         return Result<CursorPagedResponse<ResponseCommentDto>>.Success(cachedPost);
     }
@@ -79,7 +82,7 @@ public class CommentServices(
 
         var comment = await unitOfWork.Comments.GetByIdWithPostAsync(commentId);
 
-        if(comment is null)
+        if (comment is null)
             return Result<string>.Failure(new Error(ErrorCodes.NotFound, "Comment not found"));
 
         if (comment.UserId != userId && comment.Post.UserId != userId && !currentUser.IsAdmin)
@@ -91,8 +94,6 @@ public class CommentServices(
         try
         {
             var saved = await unitOfWork.SaveChangesAsync() > 0;
-            if (saved)
-                await cache.BumpScopeVersionAsync($"comments:{comment.PostId}:version");
             return saved
                 ? Result<string>.Success("Comment deleted successfully")
                 : Result<string>.Failure(new Error(ErrorCodes.Failure, "Failed to delete comment"));
@@ -106,7 +107,8 @@ public class CommentServices(
 
     public async Task<Result<string>> ToggleLikeCommentAsync(Guid commentId)
     {
-        if (!Guid.TryParse(currentUser.UserId, out var userId)) return Result<string>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
+        if (!Guid.TryParse(currentUser.UserId, out var userId)) 
+            return Result<string>.Failure(new Error(ErrorCodes.BadRequest, "Invalid User ID"));
 
         var commentExits = await unitOfWork.Comments.AnyAsync(c => c.Id == commentId);
 
@@ -130,9 +132,6 @@ public class CommentServices(
             resultMessage = existingLike.IsDeleted ? LikeCodess.Unlike : LikeCodess.Liked;
         }
         await unitOfWork.SaveChangesAsync();
-
-        var postId = await unitOfWork.Comments.GetPostIdAsync(commentId);
-        await cache.BumpScopeVersionAsync($"comments:{postId}:version");
 
         return Result<string>.Success(resultMessage);
     }

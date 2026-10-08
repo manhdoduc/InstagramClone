@@ -77,6 +77,10 @@ public class CommentConfiguration : IEntityTypeConfiguration<Comment>
     {
         builder.HasQueryFilter(c => !c.IsDeleted);
 
+        // Composite index: load comments of a post sorted by time (GetCommentsByPostIdAsync)
+        builder.HasIndex(c => new { c.PostId, c.CreatedAt })
+            .HasDatabaseName("IX_Comments_PostId_CreatedAt");
+
         builder.HasOne(c => c.Post)
             .WithMany(p => p.Comments)
             .HasForeignKey(c => c.PostId)
@@ -115,7 +119,18 @@ public class FollowConfiguration : IEntityTypeConfiguration<Follow>
     {
         builder.HasQueryFilter(f => !f.IsDeleted);
 
-        builder.HasIndex(f => new { f.FollowerId, f.FolloweeId }).IsUnique();
+        // Unique index: mỗi cặp (Follower, Followee) chỉ tồn tại một lần → phòng chống race condition
+        builder.HasIndex(f => new { f.FollowerId, f.FolloweeId })
+            .IsUnique()
+            .HasDatabaseName("IX_Follows_FollowerId_FolloweeId_Unique");
+
+        // Covering index cho GetFollowersAsync: WHERE FolloweeId = X AND Status = Accepted ORDER BY CreatedAt DESC
+        builder.HasIndex(f => new { f.FolloweeId, f.Status, f.CreatedAt })
+            .HasDatabaseName("IX_Follows_FolloweeId_Status_CreatedAt");
+
+        // Covering index cho GetFollowingAsync: WHERE FollowerId = X AND Status = Accepted ORDER BY CreatedAt DESC
+        builder.HasIndex(f => new { f.FollowerId, f.Status, f.CreatedAt })
+            .HasDatabaseName("IX_Follows_FollowerId_Status_CreatedAt");
 
         builder.HasOne(f => f.Follower)
             .WithMany(u => u.Followings)
@@ -176,6 +191,10 @@ public class PostHashtagConfiguration : IEntityTypeConfiguration<PostHashtag>
     public void Configure(EntityTypeBuilder<PostHashtag> builder)
     {
         builder.HasKey(ph => new { ph.PostId, ph.HashtagId });
+
+        // Index cho phép tra nhanh tất cả PostHashtag theo HashtagId (dùng trong hashtag search)
+        builder.HasIndex(ph => ph.HashtagId)
+            .HasDatabaseName("IX_PostHashtags_HashtagId");
 
         builder.HasOne(ph => ph.Post)
             .WithMany(p => p.PostHashtags)
@@ -252,6 +271,10 @@ public class NotificationConfiguration : IEntityTypeConfiguration<Notification>
     {
         builder.HasQueryFilter(n => !n.IsDeleted);
 
+        // Composite index: load notification inbox theo user, sort mới nhất trước
+        builder.HasIndex(n => new { n.RecipientId, n.CreatedAt })
+            .HasDatabaseName("IX_Notifications_RecipientId_CreatedAt");
+
         builder.HasOne(n => n.Recipient)
             .WithMany()
             .HasForeignKey(n => n.RecipientId)
@@ -261,5 +284,20 @@ public class NotificationConfiguration : IEntityTypeConfiguration<Notification>
             .WithMany()
             .HasForeignKey(n => n.ActorId)
             .OnDelete(DeleteBehavior.Restrict);
+    }
+}
+
+/// <summary>
+/// Hashtag UNIQUE index trên Name:
+/// - Tránh duplicate hashtag do race condition (2 post cùng dùng #travel tạo đồng thời).
+/// - Cho phép lookup O(1) theo name thay vì Full Table Scan.
+/// </summary>
+public class HashtagConfiguration : IEntityTypeConfiguration<Hashtag>
+{
+    public void Configure(EntityTypeBuilder<Hashtag> builder)
+    {
+        builder.HasIndex(h => h.Name)
+            .IsUnique()
+            .HasDatabaseName("IX_Hashtags_Name_Unique");
     }
 }

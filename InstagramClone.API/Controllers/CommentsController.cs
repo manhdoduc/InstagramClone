@@ -4,8 +4,6 @@ using InstagramClone.Application.Interfaces.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.RateLimiting;
-using InstagramClone.API.Filters;
-using InstagramClone.Domain.Entities;
 
 namespace InstagramClone.API.Controllers;
 
@@ -37,7 +35,6 @@ public class CommentsController(ICommentServices commentServices) : BaseApiContr
 
     // DELETE: api/posts/{postId}/comments/{commentId}
     [HttpDelete("{commentId:guid}")]
-    [AuthorizeOwnership(typeof(Comment), "commentId")]
     public async Task<ActionResult<string>> DeleteComment(
         [FromRoute] Guid postId,
         [FromRoute] Guid commentId)
